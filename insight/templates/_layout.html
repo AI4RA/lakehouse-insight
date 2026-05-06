@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Insight{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.1/dist/full.min.css" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #f1f5f9;
+      --border: #e2e8f0;
+      --accent: #0ea5e9;
+      --accent-dim: #0284c7;
+      --accent-bg: #e0f2fe;
+    }
+    body { background-color: var(--bg); color: #1e293b; }
+    .card {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+    }
+    .section-title {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #94a3b8; margin-bottom: 0.5rem;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 0.6rem 1rem; font-size: 0.75rem;
+         font-weight: 600; color: #94a3b8; letter-spacing: 0.05em;
+         text-transform: uppercase; border-bottom: 1px solid var(--border); }
+    td { padding: 0.75rem 1rem; font-size: 0.875rem; color: #334155;
+         border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+    [class^="badge-"] {
+      padding: 0.15rem 0.5rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 600;
+    }
+    .badge-cyan  { background: var(--accent-bg); color: var(--accent-dim); }
+    .badge-green { background: #dcfce7; color: #16a34a; }
+    .badge-yellow { background: #fef9c3; color: #ca8a04; }
+    .badge-red   { background: #fee2e2; color: #dc2626; }
+    .badge-blue  { background: #dbeafe; color: #2563eb; }
+    .btn-cyan, .btn-red, .btn-outline {
+      padding: 0.4rem 1rem; border-radius: 0.5rem; font-size: 0.85rem;
+      cursor: pointer; transition: all 0.15s; display: inline-block; text-decoration: none;
+    }
+    .btn-cyan { background: var(--accent); color: #ffffff; border: none; }
+    .btn-cyan:hover { background: var(--accent-dim); }
+    .btn-red { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+    .btn-red:hover { background: #fecaca; }
+    .btn-outline { background: transparent; color: #64748b; border: 1px solid var(--border); }
+    .btn-outline:hover { background: #f8fafc; border-color: #94a3b8; color: #475569; }
+    details > summary { list-style: none; cursor: pointer; user-select: none; }
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary:not(.no-marker)::before { content: '\25B6'; display: inline-block; font-size: 0.55em; margin-right: 0.4em; transition: transform 0.15s; vertical-align: middle; }
+    details[open] > summary:not(.no-marker)::before { transform: rotate(90deg); }
+    input[type="text"], input[type="number"], textarea, select {
+      background: #ffffff; border: 1px solid var(--border);
+      color: #1e293b; border-radius: 0.5rem; padding: 0.5rem 0.75rem;
+      width: 100%; font-size: 0.875rem; outline: none;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--accent); box-shadow: 0 0 0 2px rgba(14,165,233,0.15);
+    }
+    label { font-size: 0.8rem; color: #64748b; margin-bottom: 0.25rem; display: block; }
+    .form-group { margin-bottom: 1rem; }
+    .hint { font-size: 0.75rem; color: #94a3b8; margin-top: 0.25rem; }
+    .alert-error, .alert-success {
+      border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 1rem;
+    }
+    .alert-error { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; }
+    .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #16a34a; }
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.5);
+    }
+    .modal-content {
+      background: white; border-radius: 0.75rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+      max-width: 600px; width: 90%; padding: 1.5rem;
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+  <header class="px-6 py-3 flex items-center justify-between" style="background:#fff;border-bottom:1px solid var(--border)">
+    <div class="flex items-center gap-3">
+      <span class="text-sm font-bold tracking-widest uppercase" style="color:var(--accent)">INSIGHT</span>
+      <span class="text-xs text-slate-400">AI-powered data exploration</span>
+    </div>
+    {% block header_right %}{% endblock %}
+  </header>
+  <main class="p-6">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

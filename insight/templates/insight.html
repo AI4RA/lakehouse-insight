@@ -1,0 +1,1011 @@
+{% extends "_layout.html" %}
+
+{% block title %}Insight{% endblock %}
+
+{% block content %}
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<style>
+.md-content p { margin: 0 0 0.4em }
+.md-content h1,.md-content h2,.md-content h3,.md-content h4,.md-content h5,.md-content h6 { font-weight:600;margin:0.5em 0 0.2em }
+.md-content ul,.md-content ol { margin:0.3em 0 0.3em 1.2em;padding:0 }
+.md-content li { margin-bottom:0.15em }
+.md-content code { font-family:monospace;background:#f1f5f9;padding:0 3px;border-radius:3px;font-size:0.9em }
+.md-content pre { background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.375rem;padding:0.75rem;overflow-x:auto;margin:0.5em 0 }
+.md-content pre code { background:none;padding:0;font-size:0.8em }
+.md-content table { border-collapse:collapse;font-size:0.82em;width:auto;margin:0.5em 0 }
+.md-content th { padding:0.3rem 0.6rem;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;text-align:left;white-space:nowrap }
+.md-content td { padding:0.3rem 0.6rem;border:1px solid #e2e8f0 }
+@keyframes dotPulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+.thinking-dots span {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+  margin: 0 2px;
+  animation: dotPulse 1.2s ease-in-out infinite;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+</style>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="insight-grid" style="min-height:400px">
+
+  <!-- Chat / config panel -->
+  <div class="lg:col-span-2 flex flex-col gap-4" style="height:100%;min-height:0;overflow:hidden">
+
+    <div id="llm-banner" class="px-4 py-2 rounded text-xs" style="display:none;background:#fef9c3;border:1px solid #fde047;color:#713f12">
+      Model can't be reached. Check the LLM environment variables (LLM_BASE_URL, LLM_API_KEY, LLM_MODEL).
+    </div>
+
+    <!-- Config form (always visible, collapsible when configured) -->
+    <div class="card p-5" id="config-card">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-slate-600">Configuration</h2>
+        {% if is_configured %}
+        <button class="text-xs" style="color:var(--accent);background:none;border:none;cursor:pointer" onclick="toggleConfig()">
+          <span id="config-toggle-label">Edit</span>
+        </button>
+        {% endif %}
+      </div>
+
+      <div id="config-form" {% if is_configured %}style="display:none"{% endif %}>
+        <div class="flex flex-col gap-3">
+          <div>
+            <label class="text-xs text-slate-500 font-medium block mb-1">Client ID</label>
+            <input
+              type="text"
+              id="config-client-id"
+              placeholder="e.g. insight"
+              value="{{ saved_client_id or '' }}"
+              style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem"
+            >
+            <div class="text-xs text-slate-400 mt-1">
+              The client_id of a querying stream registered with Marina.
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-slate-500 font-medium block mb-1">Private Key (PEM)</label>
+            <textarea
+              id="config-private-key"
+              rows="5"
+              placeholder="-----BEGIN PRIVATE KEY-----&#10;..."
+              style="width:100%;font-size:0.72rem;font-family:monospace;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem;resize:vertical"
+            ></textarea>
+            <div class="text-xs text-slate-400 mt-1">
+              Paste the private key generated when you created this client.
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button class="btn-cyan text-xs" onclick="saveConfig()">Save</button>
+            <span id="config-status" class="text-xs text-slate-400" style="display:none"></span>
+          </div>
+        </div>
+      </div>
+
+      {% if is_configured %}
+      <div id="config-summary" class="text-xs text-slate-500">
+        Client: <span class="font-mono text-slate-700">{{ saved_client_id }}</span>
+        &nbsp;&middot;&nbsp; Key saved
+      </div>
+      {% endif %}
+    </div>
+
+    {% if is_configured %}
+    <!-- Chat UI -->
+    <div class="card flex flex-col" style="flex:1;overflow:hidden;min-height:0">
+      <div class="flex items-center justify-between px-4 py-2" style="border-bottom:1px solid var(--border)">
+        <span class="text-xs font-semibold text-slate-500">Conversation</span>
+        <button onclick="newChat()" style="background:none;border:none;cursor:pointer;font-size:0.72rem;color:#94a3b8;padding:0.2rem 0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='#94a3b8'">New Chat</button>
+      </div>
+      <div id="chat-messages" class="flex-1 overflow-auto px-4 py-4 flex flex-col gap-4">
+        <div class="text-center text-xs text-slate-400 py-8">Ask a question about your data.</div>
+      </div>
+
+      <div id="chat-status" class="px-4 py-1 text-xs text-slate-400" style="display:none;border-top:1px solid var(--border)"></div>
+
+      <div class="px-4 py-3 flex gap-2 items-end" style="border-top:1px solid var(--border)">
+        <textarea
+          id="chat-input"
+          rows="2"
+          placeholder="Ask a question about your data..."
+          style="flex:1;resize:none;font-size:0.85rem;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:0.375rem;font-family:inherit"
+          onkeydown="handleKey(event)"
+        ></textarea>
+        <button id="chat-submit" class="btn-cyan" onclick="submitQuestion()" style="height:2.5rem;white-space:nowrap">
+          Ask
+        </button>
+      </div>
+    </div>
+    {% else %}
+    <div class="card p-6 flex items-center justify-center text-sm text-slate-400" style="flex:1;min-height:0">
+      Provide a client_id and private key above to start chatting.
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- Sidebar -->
+  <div class="flex flex-col gap-4" style="height:100%;min-height:0;overflow-y:auto">
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold text-slate-600 mb-3">How It Works</h2>
+      <div class="flex flex-col gap-3">
+        <div>
+          <div class="text-xs font-semibold text-slate-600 mb-0.5">1. Configure a Marina client</div>
+          <div class="text-xs text-slate-400" style="line-height:1.5">
+            Enter the client_id of a querying stream registered with Marina. The
+            chatbot will only see tables that stream allows.
+          </div>
+        </div>
+        <div>
+          <div class="text-xs font-semibold text-slate-600 mb-0.5">2. Provide the private key</div>
+          <div class="text-xs text-slate-400" style="line-height:1.5">
+            Paste the private key generated when you created the client.
+            It is used to mint OAuth bearer tokens against Marina.
+          </div>
+        </div>
+        <div>
+          <div class="text-xs font-semibold text-slate-600 mb-0.5">3. Ask questions</div>
+          <div class="text-xs text-slate-400" style="line-height:1.5">
+            The LLM picks the right table, Marina fetches the data,
+            and the LLM answers in plain English.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold text-slate-600 mb-2">Access Control</h2>
+      <div class="text-xs text-slate-400" style="line-height:1.5">
+        All queries go through Marina. The chatbot only sees tables listed in the
+        selected querying stream's <code class="text-xs font-mono bg-slate-100 px-1 rounded">allowed_tables</code>.
+        No raw SQL is ever generated or executed.
+      </div>
+    </div>
+
+    {% if is_configured %}
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold text-slate-600 mb-2">Chat History</h2>
+      <div id="history-empty" class="text-xs text-slate-400">No past conversations yet.</div>
+      <div id="history-list"></div>
+    </div>
+
+    <div class="card p-5" id="tables-card" style="flex:1;min-height:180px;display:flex;flex-direction:column;overflow:hidden">
+      <h2 class="text-sm font-semibold text-slate-600 mb-2">Available Resources</h2>
+      <div id="resources-loading" class="text-xs text-slate-400">Loading...</div>
+      <div id="resources-tabs" style="display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden">
+        <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:0.4rem">
+          <button id="tab-tables" onclick="switchResourceTab('tables')"
+            style="font-size:0.72rem;padding:0.3rem 0.75rem;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);color:var(--accent);font-weight:600">
+            Tables
+          </button>
+          <button id="tab-files" onclick="switchResourceTab('files')"
+            style="font-size:0.72rem;padding:0.3rem 0.75rem;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#94a3b8">
+            Files
+          </button>
+        </div>
+        <div id="resources-tables-list" style="display:flex;flex-direction:column;gap:0.15rem;overflow-y:auto;flex:1"></div>
+        <div id="resources-files-list" style="display:none;flex-direction:column;gap:0.15rem;overflow-y:auto;flex:1"></div>
+      </div>
+      <div id="resources-empty" style="display:none" class="text-xs text-slate-400">No resources configured.</div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Preview modal -->
+<div id="preview-modal"
+     style="display:none;position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.5);
+            align-items:center;justify-content:center"
+     onclick="if(event.target===this)closePreview()">
+  <div style="background:#fff;border-radius:0.75rem;box-shadow:0 20px 60px rgba(0,0,0,0.2);
+              width:90%;max-width:860px;max-height:90vh;display:flex;flex-direction:column;margin:1rem">
+    <div class="flex items-center justify-between px-5 py-3"
+         style="border-bottom:1px solid var(--border);flex-shrink:0">
+      <span id="preview-filename" class="font-mono text-sm font-semibold text-slate-700"></span>
+      <button type="button" onclick="closePreview()"
+              style="color:#94a3b8;font-size:1.25rem;line-height:1;background:none;border:none;cursor:pointer">&times;</button>
+    </div>
+    <div id="preview-body" style="flex:1;overflow:auto;padding:0;min-height:200px"></div>
+  </div>
+</div>
+
+<script>
+{% if is_configured %}
+var _schemaCache = null;
+var _filesCache = null;
+
+// ---------------------------------------------------------------------------
+// Multi-conversation localStorage history
+// ---------------------------------------------------------------------------
+var _STORAGE_KEY = 'insight_conversations';
+var _MAX_CONVS = 20;
+var _allConvs = [];
+
+function _newConv() {
+  return { id: 'conv-' + Date.now(), created_at: new Date().toISOString(), messages: [] };
+}
+
+var _currentConv = _newConv();
+
+function _loadAllConvs() {
+  try {
+    var raw = localStorage.getItem(_STORAGE_KEY);
+    _allConvs = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(_allConvs)) _allConvs = [];
+  } catch(e) { _allConvs = []; }
+  // Restore most recent conversation if it has messages
+  if (_allConvs.length) {
+    _currentConv = JSON.parse(JSON.stringify(_allConvs[_allConvs.length - 1]));
+  }
+}
+
+function _saveCurrentConv() {
+  if (!_currentConv.messages.length) return;
+  var idx = _allConvs.findIndex(function(c) { return c.id === _currentConv.id; });
+  if (idx >= 0) {
+    _allConvs[idx] = _currentConv;
+  } else {
+    _allConvs.push(_currentConv);
+  }
+  // Keep only most recent _MAX_CONVS
+  if (_allConvs.length > _MAX_CONVS) {
+    _allConvs = _allConvs.slice(_allConvs.length - _MAX_CONVS);
+  }
+  try { localStorage.setItem(_STORAGE_KEY, JSON.stringify(_allConvs)); } catch(e) {}
+  renderHistorySidebar();
+}
+
+function newChat() {
+  _saveCurrentConv(); // preserve current before starting fresh
+  _currentConv = _newConv();
+  var container = document.getElementById('chat-messages');
+  if (container) {
+    container.innerHTML = '<div class="text-center text-xs text-slate-400 py-8">Ask a question about your data.</div>';
+  }
+  renderHistorySidebar();
+}
+
+function loadConversation(conv) {
+  _currentConv = JSON.parse(JSON.stringify(conv));
+  var container = document.getElementById('chat-messages');
+  if (container) container.innerHTML = '';
+  _currentConv.messages.forEach(function(msg) {
+    if (msg.role === 'user') {
+      addMessage('user', msg.text);
+    } else if (msg.role === 'assistant') {
+      var container = document.getElementById('chat-messages');
+      if (!container) return;
+      var placeholder = container.querySelector('.text-center');
+      if (placeholder) placeholder.remove();
+      var wrap = document.createElement('div');
+      wrap.className = 'flex justify-start';
+      var bubbleEl = document.createElement('div');
+      var hasPlotsOrWide = (msg.plots && msg.plots.length > 0);
+      bubbleEl.style.cssText = (hasPlotsOrWide ? 'max-width:95%' : 'max-width:85%') + ';background:#fff;border:1px solid var(--border);border-radius:0.125rem 0.75rem 0.75rem 0.75rem;padding:0.75rem 1rem;font-size:0.85rem;color:#1e293b;word-break:break-word';
+      var answerEl = document.createElement('div');
+      answerEl.className = 'md-content';
+      answerEl.style.lineHeight = '1.6';
+      answerEl.innerHTML = renderMarkdown(msg.text);
+      bubbleEl.appendChild(answerEl);
+      (msg.plots || []).forEach(function(p) {
+        if (p.plotData) {
+          renderPlot(bubbleEl, p.plotData);
+        } else if (p.pngSrc) {
+          var img = document.createElement('img');
+          img.src = p.pngSrc;
+          img.style.cssText = 'display:block;width:100%;max-width:640px;border-radius:4px;margin-top:0.75rem';
+          bubbleEl.appendChild(img);
+        }
+      });
+      appendResults(bubbleEl, msg.results || []);
+      wrap.appendChild(bubbleEl);
+      container.appendChild(wrap);
+    }
+  });
+  var c = document.getElementById('chat-messages');
+  if (c) c.scrollTop = c.scrollHeight;
+}
+
+function deleteConv(id, event) {
+  event.stopPropagation();
+  _allConvs = _allConvs.filter(function(c) { return c.id !== id; });
+  try { localStorage.setItem(_STORAGE_KEY, JSON.stringify(_allConvs)); } catch(e) {}
+  renderHistorySidebar();
+}
+
+var _historyExpanded = false;
+var _HISTORY_DEFAULT_COUNT = 3;
+
+function toggleHistoryExpanded() {
+  _historyExpanded = !_historyExpanded;
+  renderHistorySidebar();
+}
+
+function renderHistorySidebar() {
+  var list = document.getElementById('history-list');
+  var empty = document.getElementById('history-empty');
+  if (!list) return;
+  // Show all convs, most recent first; highlight the current one
+  var past = _allConvs.filter(function(c) { return c.messages.length > 0; }).slice().reverse();
+  if (!past.length) {
+    list.innerHTML = '';
+    if (empty) empty.style.display = '';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  var visible = _historyExpanded ? past : past.slice(0, _HISTORY_DEFAULT_COUNT);
+  var hidden = past.length - visible.length;
+  var rows = visible.map(function(conv) {
+    var isCurrent = conv.id === _currentConv.id;
+    var firstQ = (conv.messages.find(function(m) { return m.role === 'user'; }) || {}).text || '(empty)';
+    var snippet = firstQ.length > 60 ? firstQ.slice(0, 60) + '...' : firstQ;
+    var date = new Date(conv.created_at);
+    var dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    var timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    var convJson = escapeHtml(JSON.stringify(conv)).replace(/'/g, '&#39;');
+    var convId = escapeHtml(conv.id);
+    var bgStyle = isCurrent ? 'background:#f0f9ff;border-left:2px solid var(--accent)' : '';
+    return '<div style="position:relative;padding:0.4rem 0.5rem;border-radius:0.375rem;margin-bottom:0.25rem;' + bgStyle + '" '
+      + 'onmouseover="this.style.background=\'#f8fafc\';this.querySelector(\'.del-btn\').style.display=\'block\'" '
+      + 'onmouseout="this.style.background=\'' + (isCurrent ? '#f0f9ff' : 'none') + '\';this.querySelector(\'.del-btn\').style.display=\'none\'">'
+      + '<div style="cursor:pointer" onclick="loadConversation(' + convJson + ')">'
+      + '<div class="text-xs' + (isCurrent ? ' text-sky-700' : ' text-slate-600') + '" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:1.2rem">' + escapeHtml(snippet) + '</div>'
+      + '<div class="text-xs text-slate-400">' + dateStr + ' ' + timeStr + '</div>'
+      + '</div>'
+      + '<button class="del-btn" onclick="deleteConv(\'' + convId + '\', event)" '
+      + 'style="display:none;position:absolute;top:0.3rem;right:0.3rem;background:none;border:none;cursor:pointer;color:#94a3b8;font-size:0.8rem;line-height:1;padding:0.1rem 0.25rem;border-radius:0.25rem" '
+      + 'onmouseover="this.style.color=\'#dc2626\'" onmouseout="this.style.color=\'#94a3b8\'">&times;</button>'
+      + '</div>';
+  }).join('');
+  var toggle = '';
+  if (past.length > _HISTORY_DEFAULT_COUNT) {
+    var label = _historyExpanded
+      ? 'Show fewer'
+      : 'Show ' + hidden + ' more';
+    toggle = '<button onclick="toggleHistoryExpanded()" '
+      + 'style="margin-top:0.4rem;font-size:0.72rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:0.1rem 0.25rem">'
+      + label + '</button>';
+  }
+  list.innerHTML = rows + toggle;
+}
+
+function appendResults(bubbleEl, results) {
+  if (!results || !results.length) return;
+  var totalRows = results.reduce(function(s, r) { return s + (r.row_count || 0); }, 0);
+  var tableList = results.map(function(r) {
+    return '<code style="font-family:monospace;background:#f8fafc;padding:0 3px;border-radius:3px">' + escapeHtml(r.table) + '</code>';
+  }).join(', ');
+  var meta = document.createElement('div');
+  meta.style.cssText = 'font-size:0.72rem;color:#94a3b8;margin-top:0.5rem;margin-bottom:0.25rem';
+  meta.innerHTML = 'Queried ' + tableList + ' &mdash; ' + totalRows + ' row' + (totalRows !== 1 ? 's' : '') + ' total';
+  bubbleEl.appendChild(meta);
+  results.forEach(function(r) {
+    if (!r.columns || !r.columns.length || !r.rows || !r.rows.length) return;
+    var toggleId = 'data-' + r.table + '-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    var toggleWrap = document.createElement('div');
+    var toggleBtn = document.createElement('button');
+    toggleBtn.style.cssText = 'font-size:0.72rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:0';
+    toggleBtn.textContent = 'Show ' + r.table + ' (' + r.row_count + ' rows)';
+    toggleBtn.onclick = (function(id) { return function() { toggleData(id, this); }; })(toggleId);
+    toggleWrap.appendChild(toggleBtn);
+    var tableWrap = document.createElement('div');
+    tableWrap.id = toggleId;
+    tableWrap.style.cssText = 'display:none;margin-top:0.5rem;overflow:auto;max-height:240px';
+    tableWrap.innerHTML = buildDataTable(r.rows, r.columns);
+    toggleWrap.appendChild(tableWrap);
+    bubbleEl.appendChild(toggleWrap);
+  });
+}
+
+_loadAllConvs();
+if (_currentConv.messages.length) {
+  loadConversation(_currentConv);
+}
+renderHistorySidebar();
+
+(function loadAvailableResources() {
+  fetch('./tables')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var loading = document.getElementById('resources-loading');
+      var emptyEl = document.getElementById('resources-empty');
+      if (data.error) {
+        if (loading) loading.textContent = data.error;
+        return;
+      }
+      if (loading) loading.style.display = 'none';
+
+      var tables = data.tables || [];
+      var files = data.files || [];
+      _schemaCache = tables;
+      _filesCache = files;
+
+      resizeInsightGrid();
+
+      if (!tables.length && !files.length) {
+        if (emptyEl) emptyEl.style.display = '';
+        return;
+      }
+
+      var tabsEl = document.getElementById('resources-tabs');
+      if (tabsEl) tabsEl.style.display = 'flex';
+
+      // Update tab labels with counts
+      var tabTables = document.getElementById('tab-tables');
+      var tabFiles = document.getElementById('tab-files');
+      if (tabTables) tabTables.textContent = 'Tables' + (tables.length ? ' (' + tables.length + ')' : '');
+      if (tabFiles) tabFiles.textContent = 'Files' + (files.length ? ' (' + files.length + ')' : '');
+
+      var tablesList = document.getElementById('resources-tables-list');
+      var filesList = document.getElementById('resources-files-list');
+
+      tables.forEach(function(t) {
+        var cols = (t.columns || []);
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:0.25rem 0;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between';
+        item.innerHTML = '<span class="text-xs" style="font-weight:500;color:#334155">' + escapeHtml(t.name) + '</span>'
+          + '<span class="text-xs" style="color:#94a3b8">' + cols.length + ' col' + (cols.length !== 1 ? 's' : '') + '</span>';
+        if (tablesList) tablesList.appendChild(item);
+      });
+
+      files.forEach(function(f) {
+        var ct = f.content_type || '';
+        var readable = ct.indexOf('text/') === 0 || ct === 'application/json' || ct === 'application/xml';
+        var badge = readable
+          ? '<span style="display:inline-block;background:#dcfce7;border-radius:0.25rem;padding:0 0.3rem;font-size:0.68rem;color:#16a34a;margin-left:0.3rem">readable</span>'
+          : '<span style="display:inline-block;background:#f1f5f9;border-radius:0.25rem;padding:0 0.3rem;font-size:0.68rem;color:#94a3b8;margin-left:0.3rem">binary</span>';
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:0.25rem 0;border-bottom:1px solid #f1f5f9' + (readable ? '' : ';opacity:0.6');
+        item.innerHTML = '<span class="text-xs" style="font-weight:500;color:' + (readable ? '#334155' : '#94a3b8') + '">'
+          + escapeHtml(f.filename) + badge + '</span>';
+        if (filesList) filesList.appendChild(item);
+      });
+    })
+    .catch(function() {
+      var loading = document.getElementById('resources-loading');
+      if (loading) loading.textContent = 'Failed to load resources.';
+    });
+})();
+{% endif %}
+
+(function checkLlmStatus() {
+  fetch('./llm-status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var banner = document.getElementById('llm-banner');
+      var input = document.getElementById('chat-input');
+      var submit = document.getElementById('chat-submit');
+      var ok = data.ok;
+      if (banner) banner.style.display = ok ? 'none' : '';
+      if (input) {
+        input.disabled = !ok;
+        input.style.background = ok ? '' : '#f8fafc';
+        input.style.color = ok ? '' : '#94a3b8';
+        input.style.cursor = ok ? '' : 'not-allowed';
+        if (!ok) input.placeholder = 'LLM unavailable — go to Settings to add credentials.';
+      }
+      if (submit) submit.disabled = !ok;
+    })
+    .catch(function() {
+      var banner = document.getElementById('llm-banner');
+      var input = document.getElementById('chat-input');
+      var submit = document.getElementById('chat-submit');
+      if (banner) banner.style.display = '';
+      if (input) { input.disabled = true; input.style.background = '#f8fafc'; input.style.color = '#94a3b8'; input.style.cursor = 'not-allowed'; }
+      if (submit) submit.disabled = true;
+    });
+})();
+
+function toggleConfig() {
+  var form = document.getElementById('config-form');
+  var summary = document.getElementById('config-summary');
+  var label = document.getElementById('config-toggle-label');
+  if (!form) return;
+  var showing = form.style.display !== 'none';
+  form.style.display = showing ? 'none' : '';
+  if (summary) summary.style.display = showing ? '' : 'none';
+  if (label) label.textContent = showing ? 'Edit' : 'Cancel';
+}
+
+function saveConfig() {
+  var clientId = (document.getElementById('config-client-id') || {}).value || '';
+  var privateKey = (document.getElementById('config-private-key') || {}).value || '';
+  var statusEl = document.getElementById('config-status');
+
+  if (!clientId) { showConfigStatus('Enter a client_id.', true); return; }
+  if (!privateKey.trim()) { showConfigStatus('Private key is required.', true); return; }
+
+  showConfigStatus('Saving...', false);
+
+  var formData = new FormData();
+  formData.append('client_id', clientId);
+  formData.append('private_key', privateKey);
+
+  fetch('./config', { method: 'POST', body: formData })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        window.location.reload();
+      } else {
+        showConfigStatus('Error: ' + (data.error || 'unknown'), true);
+      }
+    })
+    .catch(function(e) { showConfigStatus('Error: ' + e, true); });
+}
+
+function showConfigStatus(msg, isError) {
+  var el = document.getElementById('config-status');
+  if (!el) return;
+  el.style.display = '';
+  el.style.color = isError ? '#dc2626' : '#64748b';
+  el.textContent = msg;
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    submitQuestion();
+  }
+}
+
+function setStatus(msg) {
+  var el = document.getElementById('chat-status');
+  if (!el) return;
+  if (msg) { el.style.display = ''; el.textContent = msg; }
+  else { el.style.display = 'none'; el.textContent = ''; }
+}
+
+function _linearRegression(xs, ys) {
+  var n = xs.length;
+  if (n < 2) return null;
+  var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+  for (var i = 0; i < n; i++) {
+    sumX += xs[i]; sumY += ys[i];
+    sumXY += xs[i] * ys[i]; sumX2 += xs[i] * xs[i];
+  }
+  var denom = n * sumX2 - sumX * sumX;
+  if (denom === 0) return null;
+  var slope = (n * sumXY - sumX * sumY) / denom;
+  var intercept = (sumY - slope * sumX) / n;
+  return {slope: slope, intercept: intercept};
+}
+
+async function renderPlot(container, plotData) {
+  var rows = plotData.rows || [];
+  var xCol = plotData.x_column;
+  var yCol = plotData.y_column;
+  var colorCol = plotData.color_column;
+  var chartType = plotData.chart_type;
+  var showTrendline = plotData.trendline && chartType === 'scatter';
+
+  var traces = [];
+  if (chartType === 'pie') {
+    traces.push({
+      type: 'pie',
+      labels: rows.map(function(r) { return r[xCol]; }),
+      values: rows.map(function(r) { return r[yCol]; }),
+      hole: 0.3,
+    });
+  } else if (chartType === 'box' || chartType === 'violin') {
+    if (colorCol) {
+      var groups = {};
+      rows.forEach(function(r) {
+        var key = String(r[colorCol] != null ? r[colorCol] : 'Other');
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(r[yCol]);
+      });
+      Object.keys(groups).forEach(function(key) {
+        var t = {name: key, type: chartType, y: groups[key]};
+        if (chartType === 'violin') t.box = {visible: true};
+        traces.push(t);
+      });
+    } else {
+      var t = {type: chartType, y: rows.map(function(r) { return r[yCol]; })};
+      if (xCol) t.x = rows.map(function(r) { return r[xCol]; });
+      if (chartType === 'violin') t.box = {visible: true};
+      traces.push(t);
+    }
+  } else if (colorCol) {
+    var groups = {};
+    rows.forEach(function(r) {
+      var key = String(r[colorCol] != null ? r[colorCol] : 'Other');
+      if (!groups[key]) groups[key] = {x: [], y: []};
+      groups[key].x.push(r[xCol]);
+      groups[key].y.push(r[yCol]);
+    });
+    Object.keys(groups).forEach(function(key) {
+      traces.push({
+        name: key,
+        type: chartType === 'line' ? 'scatter' : chartType,
+        mode: chartType === 'line' ? 'lines+markers' : (chartType === 'scatter' ? 'markers' : undefined),
+        x: groups[key].x,
+        y: groups[key].y,
+      });
+    });
+  } else {
+    var xVals = rows.map(function(r) { return r[xCol]; });
+    var yVals = rows.map(function(r) { return r[yCol]; });
+    traces.push({
+      type: chartType === 'line' ? 'scatter' : chartType,
+      mode: chartType === 'line' ? 'lines+markers' : (chartType === 'scatter' ? 'markers' : undefined),
+      x: xVals,
+      y: yVals,
+    });
+    if (showTrendline) {
+      var numX = xVals.map(Number), numY = yVals.map(Number);
+      var fit = _linearRegression(numX, numY);
+      if (fit) {
+        var xMin = Math.min.apply(null, numX), xMax = Math.max.apply(null, numX);
+        traces.push({
+          type: 'scatter', mode: 'lines', name: 'Trend',
+          x: [xMin, xMax],
+          y: [fit.slope * xMin + fit.intercept, fit.slope * xMax + fit.intercept],
+          line: {dash: 'dash', color: '#64748b', width: 2},
+        });
+      }
+    }
+  }
+
+  var layout = {
+    title: {text: plotData.title || '', font: {size: 13}},
+    xaxis: {title: {text: plotData.x_label || xCol || ''}, automargin: true},
+    yaxis: {title: {text: plotData.y_label || yCol || ''}, automargin: true},
+    margin: {t: 40, r: 16, b: 50, l: 60},
+    paper_bgcolor: '#ffffff',
+    plot_bgcolor: '#f8fafc',
+    font: {size: 11},
+    legend: {orientation: 'h', y: -0.2},
+    width: 640,
+    height: 360,
+  };
+
+  if (!window.Plotly) {
+    var msg = document.createElement('div');
+    msg.textContent = 'Plotly not loaded — chart unavailable.';
+    msg.style.marginTop = '0.75rem';
+    container.appendChild(msg);
+    return null;
+  }
+
+  var plotDiv = document.createElement('div');
+  plotDiv.style.cssText = 'width:100%;max-width:640px;margin-top:0.75rem;border-radius:4px;overflow:hidden';
+  container.appendChild(plotDiv);
+
+  layout.autosize = true;
+  layout.width = undefined;
+
+  try {
+    await Plotly.newPlot(plotDiv, traces, layout, {responsive: true, displaylogo: false});
+    return null;
+  } catch(e) {
+    plotDiv.remove();
+    var err = document.createElement('div');
+    err.style.cssText = 'margin-top:0.75rem;color:#dc2626;font-size:0.8rem';
+    err.textContent = 'Chart render failed: ' + String(e);
+    container.appendChild(err);
+    return null;
+  }
+}
+
+function addMessage(role, content) {
+  var container = document.getElementById('chat-messages');
+  if (!container) return;
+  var placeholder = container.querySelector('.text-center');
+  if (placeholder) placeholder.remove();
+
+  var wrap = document.createElement('div');
+  wrap.className = role === 'user' ? 'flex justify-end' : 'flex justify-start';
+
+  var bubble = document.createElement('div');
+  if (role === 'user') {
+    bubble.style.cssText = 'max-width:75%;background:#e2e8f0;border-radius:0.75rem 0.75rem 0.125rem 0.75rem;padding:0.625rem 0.875rem;font-size:0.85rem;color:#1e293b;word-break:break-word';
+    bubble.textContent = content;
+  } else {
+    bubble.style.cssText = 'max-width:85%;background:#fff;border:1px solid var(--border);border-radius:0.125rem 0.75rem 0.75rem 0.75rem;padding:0.75rem 1rem;font-size:0.85rem;color:#1e293b;word-break:break-word';
+    bubble.innerHTML = content;
+  }
+  wrap.appendChild(bubble);
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+function toggleData(id, btn) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+  if (el.style.display === 'none') { el.style.display = ''; btn.textContent = 'Hide data'; }
+  else { el.style.display = 'none'; btn.textContent = btn.dataset.label; }
+}
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+marked.use({ gfm: true, breaks: false });
+
+function openPreview(hash, filename, contentType) {
+  var url = './preview/' + hash;
+  document.getElementById('preview-filename').textContent = filename;
+  var body = document.getElementById('preview-body');
+  body.innerHTML = '<p style="color:#94a3b8;font-size:0.8rem;padding:1rem">Loading...</p>';
+  document.getElementById('preview-modal').style.display = 'flex';
+
+  var fnLower = filename.toLowerCase();
+  var isMarkdown = contentType === 'text/markdown' || contentType === 'text/x-markdown'
+                   || fnLower.endsWith('.md') || fnLower.endsWith('.markdown');
+  if (contentType && contentType.startsWith('image/')) {
+    body.innerHTML = '<img src="' + url + '" alt="' + escapeHtml(filename) + '" '
+      + 'style="max-width:100%;max-height:70vh;display:block;margin:auto;padding:1rem">';
+  } else if (contentType === 'application/pdf') {
+    body.innerHTML = '<iframe src="' + url + '" style="width:100%;height:70vh;border:none"></iframe>';
+  } else if (isMarkdown) {
+    fetch(url)
+      .then(function(r) { return r.text(); })
+      .then(function(html) { body.innerHTML = html; })
+      .catch(function() { body.innerHTML = '<p style="color:#dc2626;padding:1rem">Failed to load.</p>'; });
+  } else if (contentType && (contentType.startsWith('text/') || contentType === 'application/json'
+             || contentType === 'application/xml' || contentType === 'application/csv')) {
+    fetch(url)
+      .then(function(r) { return r.text(); })
+      .then(function(text) {
+        body.innerHTML = '<pre style="font-size:0.75rem;padding:1rem;white-space:pre-wrap;'
+          + 'word-break:break-all;margin:0;max-height:70vh;overflow:auto">'
+          + escapeHtml(text.substring(0, 50000)) + '</pre>';
+      })
+      .catch(function() { body.innerHTML = '<p style="color:#dc2626;padding:1rem">Failed to load.</p>'; });
+  } else {
+    body.innerHTML = '<div style="padding:2rem;text-align:center;color:#94a3b8">'
+      + '<p class="text-sm mb-2">Preview not available for this file type.</p>'
+      + '<a href="' + url + '" download="' + escapeHtml(filename) + '" class="btn-cyan">'
+      + 'Download ' + escapeHtml(filename) + '</a></div>';
+  }
+}
+
+function closePreview() {
+  document.getElementById('preview-modal').style.display = 'none';
+  document.getElementById('preview-body').innerHTML = '';
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closePreview();
+});
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  return DOMPurify.sanitize(marked.parse(text));
+}
+
+var _activeReader = null;
+
+async function submitQuestion() {
+  var input = document.getElementById('chat-input');
+  var submitBtn = document.getElementById('chat-submit');
+  if (!input || !submitBtn) return;
+  if (_activeReader) return;
+  var question = input.value.trim();
+  if (!question) return;
+
+  input.value = '';
+  input.disabled = true;
+  submitBtn.textContent = 'Stop';
+  submitBtn.onclick = function() { if (_activeReader) _activeReader.cancel(); };
+  addMessage('user', question);
+  _currentConv.messages.push({ role: 'user', text: question });
+  _saveCurrentConv();
+
+  var formData = new FormData();
+  formData.append('question', question);
+  if (_schemaCache) {
+    formData.append('schema', JSON.stringify(_schemaCache));
+  }
+  if (_filesCache) {
+    formData.append('files', JSON.stringify(_filesCache));
+  }
+  // Send prior turns as history (exclude the current question just pushed).
+  // Strip results/plots — only role+text is needed for LLM context, and large
+  // row data would bloat the request body significantly.
+  var priorMessages = _currentConv.messages.slice(0, -1).map(function(m) {
+    return { role: m.role, text: m.text };
+  });
+  if (priorMessages.length) {
+    formData.append('history', JSON.stringify(priorMessages));
+  }
+
+  var answerText = '';
+  var answerEl = null;   // the <div> inside the bubble that holds streaming text
+  var bubbleEl = null;   // the outer bubble element
+  var pendingPlots = []; // plot specs accumulated during this response
+
+  // Show thinking indicator
+  var thinkingEl = document.createElement('div');
+  thinkingEl.className = 'flex justify-start';
+  thinkingEl.id = 'thinking-indicator';
+  thinkingEl.innerHTML = '<div style="background:#fff;border:1px solid var(--border);border-radius:0.125rem 0.75rem 0.75rem 0.75rem;padding:0.75rem 1rem">'
+    + '<div class="thinking-dots"><span></span><span></span><span></span></div></div>';
+  var chatContainer = document.getElementById('chat-messages');
+  if (chatContainer) { chatContainer.appendChild(thinkingEl); chatContainer.scrollTop = chatContainer.scrollHeight; }
+
+  function removeThinking() {
+    var el = document.getElementById('thinking-indicator');
+    if (el) el.remove();
+  }
+
+  // Stall detection: show elapsed time after 5s of no content
+  var _thinkingStart = Date.now();
+  var _stallTimer = null;
+  function startStallTimer() {
+    if (_stallTimer) clearInterval(_stallTimer);
+    _stallTimer = setInterval(function() {
+      var elapsed = Math.round((Date.now() - _thinkingStart) / 1000);
+      setStatus('Still thinking... (' + elapsed + 's)');
+    }, 1000);
+  }
+  startStallTimer();
+  function clearStallTimer() {
+    if (_stallTimer) { clearInterval(_stallTimer); _stallTimer = null; }
+  }
+
+  try {
+    var response = await fetch('./chat', { method: 'POST', body: formData });
+    var reader = response.body.getReader();
+    _activeReader = reader;
+    var decoder = new TextDecoder();
+    var buffer = '';
+
+    while (true) {
+      var result = await reader.read();
+      if (result.done) break;
+      buffer += decoder.decode(result.value, { stream: true });
+
+      // Process complete SSE events (delimited by \n\n)
+      var events = buffer.split('\n\n');
+      buffer = events.pop(); // keep incomplete trailing chunk
+
+      for (var i = 0; i < events.length; i++) {
+        var line = events[i].trim();
+        if (!line.startsWith('data: ')) continue;
+        var data;
+        try { data = JSON.parse(line.slice(6)); } catch(e) { continue; }
+
+        if (data.type === 'heartbeat') {
+          // Backend is alive, stall timer keeps ticking
+          continue;
+
+        } else if (data.type === 'status') {
+          setStatus(data.text);
+
+        } else if (data.type === 'token') {
+          setStatus('');
+          clearStallTimer();
+          removeThinking();
+          if (!answerEl) {
+            // Create the streaming bubble on first token
+            var container = document.getElementById('chat-messages');
+            var placeholder = container ? container.querySelector('.text-center') : null;
+            if (placeholder) placeholder.remove();
+            var wrap = document.createElement('div');
+            wrap.className = 'flex justify-start';
+            bubbleEl = document.createElement('div');
+            bubbleEl.style.cssText = 'max-width:85%;background:#fff;border:1px solid var(--border);border-radius:0.125rem 0.75rem 0.75rem 0.75rem;padding:0.75rem 1rem;font-size:0.85rem;color:#1e293b;word-break:break-word';
+            answerEl = document.createElement('div');
+            answerEl.style.lineHeight = '1.6';
+            bubbleEl.appendChild(answerEl);
+            wrap.appendChild(bubbleEl);
+            if (container) { container.appendChild(wrap); container.scrollTop = container.scrollHeight; }
+          }
+          answerText += data.text;
+          answerEl.innerHTML = renderMarkdown(answerText);
+          var container2 = document.getElementById('chat-messages');
+          if (container2) container2.scrollTop = container2.scrollHeight;
+
+        } else if (data.type === 'plot') {
+          setStatus('');
+          clearStallTimer();
+          removeThinking();
+          if (!bubbleEl) {
+            var container3 = document.getElementById('chat-messages');
+            var placeholder3 = container3 ? container3.querySelector('.text-center') : null;
+            if (placeholder3) placeholder3.remove();
+            var wrap3 = document.createElement('div');
+            wrap3.className = 'flex justify-start';
+            bubbleEl = document.createElement('div');
+            bubbleEl.style.cssText = 'max-width:95%;background:#fff;border:1px solid var(--border);border-radius:0.125rem 0.75rem 0.75rem 0.75rem;padding:0.75rem 1rem;font-size:0.85rem;color:#1e293b;word-break:break-word';
+            answerEl = document.createElement('div');
+            answerEl.style.lineHeight = '1.6';
+            bubbleEl.appendChild(answerEl);
+            wrap3.appendChild(bubbleEl);
+            if (container3) { container3.appendChild(wrap3); }
+          }
+          await renderPlot(bubbleEl, data);
+          pendingPlots.push({ title: data.title, chart_type: data.chart_type, plotData: data });
+          var container4 = document.getElementById('chat-messages');
+          if (container4) container4.scrollTop = container4.scrollHeight;
+
+        } else if (data.type === 'preview') {
+          setStatus('');
+          openPreview(data.file_hash, data.filename, data.content_type);
+
+        } else if (data.type === 'done') {
+          setStatus('');
+          clearStallTimer();
+          removeThinking();
+          if (bubbleEl) appendResults(bubbleEl, data.results);
+          _currentConv.messages.push({ role: 'assistant', text: answerText, results: data.results || [], plots: pendingPlots });
+          _saveCurrentConv();
+
+        } else if (data.type === 'error') {
+          setStatus('');
+          clearStallTimer();
+          removeThinking();
+          addMessage('assistant', '<div style="color:#dc2626">' + escapeHtml(data.text) + '</div>');
+        }
+      }
+    }
+  } catch(e) {
+    setStatus('');
+    clearStallTimer();
+    removeThinking();
+    addMessage('assistant', '<div style="color:#dc2626">Request failed: ' + escapeHtml(String(e)) + '</div>');
+  } finally {
+    _activeReader = null;
+    clearStallTimer();
+    input.disabled = false;
+    submitBtn.onclick = submitQuestion;
+    submitBtn.textContent = 'Ask';
+    input.focus();
+  }
+}
+
+function switchResourceTab(tab) {
+  var tablesList = document.getElementById('resources-tables-list');
+  var filesList = document.getElementById('resources-files-list');
+  var tabTables = document.getElementById('tab-tables');
+  var tabFiles = document.getElementById('tab-files');
+  if (tab === 'tables') {
+    if (tablesList) tablesList.style.display = 'flex';
+    if (filesList) filesList.style.display = 'none';
+    if (tabTables) { tabTables.style.borderBottomColor = 'var(--accent)'; tabTables.style.color = 'var(--accent)'; tabTables.style.fontWeight = '600'; }
+    if (tabFiles) { tabFiles.style.borderBottomColor = 'transparent'; tabFiles.style.color = '#94a3b8'; tabFiles.style.fontWeight = 'normal'; }
+  } else {
+    if (tablesList) tablesList.style.display = 'none';
+    if (filesList) filesList.style.display = 'flex';
+    if (tabFiles) { tabFiles.style.borderBottomColor = 'var(--accent)'; tabFiles.style.color = 'var(--accent)'; tabFiles.style.fontWeight = '600'; }
+    if (tabTables) { tabTables.style.borderBottomColor = 'transparent'; tabTables.style.color = '#94a3b8'; tabTables.style.fontWeight = 'normal'; }
+  }
+}
+
+function resizeInsightGrid() {
+  var grid = document.getElementById('insight-grid');
+  if (!grid) return;
+  var top = grid.getBoundingClientRect().top + window.scrollY;
+  var h = window.innerHeight - top - 32;
+  grid.style.height = Math.max(h, 400) + 'px';
+}
+window.addEventListener('resize', resizeInsightGrid);
+requestAnimationFrame(function() { requestAnimationFrame(resizeInsightGrid); });
+
+function buildDataTable(rows, columns) {
+  var html = '<table style="border-collapse:collapse;font-size:0.72rem;width:100%;min-width:max-content"><thead><tr>';
+  columns.forEach(function(c) {
+    html += '<th style="padding:0.2rem 0.5rem;border-bottom:1px solid #e2e8f0;text-align:left;color:#64748b;white-space:nowrap">' + escapeHtml(c) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  rows.forEach(function(row) {
+    html += '<tr>';
+    columns.forEach(function(c) {
+      var val = row[c];
+      html += '<td style="padding:0.2rem 0.5rem;border-bottom:1px solid #f1f5f9;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(val !== null && val !== undefined ? String(val) : '') + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+</script>
+{% endblock %}
