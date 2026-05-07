@@ -55,110 +55,76 @@
       </button>
     </div>
 
-    <!-- Settings panel (Marina client + LLM endpoint) -->
+    <!-- Settings panel: Marina Access + LLM Endpoint in one card -->
     <div id="panel-settings" class="flex flex-col gap-4" style="flex:1;min-height:0;overflow-y:auto">
+    <div class="card p-5">
+      <div class="flex flex-col gap-5">
 
-    <!-- Config form (always visible, collapsible when configured) -->
-    <div class="card p-5" id="config-card">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-semibold text-slate-600">Configuration</h2>
-        {% if is_configured %}
-        <button class="text-xs" style="color:var(--accent);background:none;border:none;cursor:pointer" onclick="toggleConfig()">
-          <span id="config-toggle-label">Edit</span>
-        </button>
-        {% endif %}
-      </div>
-
-      <div id="config-form" {% if is_configured %}style="display:none"{% endif %}>
-        <div class="flex flex-col gap-3">
-          <div>
-            <label class="text-xs text-slate-500 font-medium block mb-1">Client ID</label>
-            <input
-              type="text"
-              id="config-client-id"
-              placeholder="e.g. insight"
-              value="{{ saved_client_id or '' }}"
-              style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem"
-            >
-            <div class="text-xs text-slate-400 mt-1">
-              The client_id of a querying stream registered with Marina.
+        <!-- Marina Access -->
+        <div>
+          <h3 class="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-3">Marina Access</h3>
+          <div class="flex flex-col gap-3">
+            <div>
+              <label class="text-xs text-slate-500 font-medium block mb-1">Client ID</label>
+              <input type="text" id="config-client-id"
+                placeholder="e.g. insight"
+                value="{{ saved_client_id or '' }}"
+                style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+              <div class="text-xs text-slate-400 mt-1">The client_id of a querying stream registered with Marina.</div>
             </div>
-          </div>
-          <div>
-            <label class="text-xs text-slate-500 font-medium block mb-1">Private Key (PEM)</label>
-            <textarea
-              id="config-private-key"
-              rows="5"
-              placeholder="-----BEGIN PRIVATE KEY-----&#10;..."
-              style="width:100%;font-size:0.72rem;font-family:monospace;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem;resize:vertical"
-            ></textarea>
-            <div class="text-xs text-slate-400 mt-1">
-              Paste the private key generated when you created this client.
+            <div>
+              <label class="text-xs text-slate-500 font-medium block mb-1">Private Key (PEM)</label>
+              <textarea id="config-private-key" rows="5"
+                placeholder="{% if is_configured %}(saved -- leave blank to keep){% else %}-----BEGIN PRIVATE KEY-----&#10;...{% endif %}"
+                style="width:100%;font-size:0.72rem;font-family:monospace;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem;resize:vertical"></textarea>
+              <div class="text-xs text-slate-400 mt-1">
+                {% if is_configured %}A key is already saved. Leave blank to keep, or paste a new one to replace.{% else %}Paste the private key generated when you created this client.{% endif %}
+              </div>
             </div>
-          </div>
-          <div class="flex items-center gap-3">
-            <button class="btn-cyan text-xs" onclick="saveConfig()">Save</button>
-            <span id="config-status" class="text-xs text-slate-400" style="display:none"></span>
           </div>
         </div>
-      </div>
 
-      {% if is_configured %}
-      <div id="config-summary" class="text-xs text-slate-500">
-        Client: <span class="font-mono text-slate-700">{{ saved_client_id }}</span>
-        &nbsp;&middot;&nbsp; Key saved
-      </div>
-      {% endif %}
-    </div>
+        <hr style="border:none;border-top:1px solid var(--border);margin:0">
 
-    <!-- LLM endpoint config -->
-    <div class="card p-5" id="llm-card">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-semibold text-slate-600">LLM Endpoint</h2>
-        <button class="text-xs" style="color:var(--accent);background:none;border:none;cursor:pointer" onclick="toggleLlm()">
-          <span id="llm-toggle-label">Edit</span>
-        </button>
-      </div>
-      <div id="llm-form" style="display:{% if llm_base_url %}none{% else %}block{% endif %}">
-        <div class="flex flex-col gap-3">
-          <div>
-            <label class="text-xs text-slate-500 font-medium block mb-1">Base URL</label>
-            <input type="text" id="llm-base-url"
-              placeholder="https://mindrouter.example.com/v1"
-              value="{{ llm_base_url or '' }}"
-              style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
-            <div class="text-xs text-slate-400 mt-1">OpenAI-compatible endpoint (MindRouter, OpenAI, vLLM, etc).</div>
-          </div>
-          <div>
-            <label class="text-xs text-slate-500 font-medium block mb-1">API Key</label>
-            <input type="password" id="llm-api-key"
-              placeholder="{% if llm_api_key_set %}(saved -- leave blank to keep){% else %}sk-...{% endif %}"
-              autocomplete="off"
-              style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
-            <div class="text-xs text-slate-400 mt-1">
-              {% if llm_api_key_set %}A key is already saved. Leave blank to keep it, or paste a new one to replace.{% else %}Paste the API key for the endpoint above.{% endif %}
+        <!-- LLM Endpoint -->
+        <div>
+          <h3 class="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-3">LLM Endpoint</h3>
+          <div class="flex flex-col gap-3">
+            <div>
+              <label class="text-xs text-slate-500 font-medium block mb-1">Base URL</label>
+              <input type="text" id="llm-base-url"
+                placeholder="https://mindrouter.example.com/v1"
+                value="{{ llm_base_url or '' }}"
+                style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+              <div class="text-xs text-slate-400 mt-1">OpenAI-compatible endpoint (MindRouter, OpenAI, vLLM, etc).</div>
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 font-medium block mb-1">API Key</label>
+              <input type="password" id="llm-api-key"
+                placeholder="{% if llm_api_key_set %}(saved -- leave blank to keep){% else %}sk-...{% endif %}"
+                autocomplete="off"
+                style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+              <div class="text-xs text-slate-400 mt-1">
+                {% if llm_api_key_set %}A key is already saved. Leave blank to keep, or paste a new one to replace.{% else %}Paste the API key for the endpoint above.{% endif %}
+              </div>
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 font-medium block mb-1">Model</label>
+              <input type="text" id="llm-model"
+                placeholder="gpt-4o-mini"
+                value="{{ llm_model or '' }}"
+                style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
             </div>
           </div>
-          <div>
-            <label class="text-xs text-slate-500 font-medium block mb-1">Model</label>
-            <input type="text" id="llm-model"
-              placeholder="gpt-4o-mini"
-              value="{{ llm_model or '' }}"
-              style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
-          </div>
-          <div class="flex items-center gap-3">
-            <button class="btn-cyan text-xs" onclick="saveLlmConfig()">Save</button>
-            <span id="llm-status-msg" class="text-xs text-slate-400" style="display:none"></span>
-          </div>
+        </div>
+
+        <!-- Single save button for the whole tab -->
+        <div class="flex items-center gap-3" style="border-top:1px solid var(--border);padding-top:1rem">
+          <button class="btn-cyan text-xs" onclick="saveAllSettings()">Save</button>
+          <span id="settings-status" class="text-xs text-slate-400" style="display:none"></span>
         </div>
       </div>
-      <div id="llm-summary" class="text-xs text-slate-500" style="display:{% if llm_base_url %}block{% else %}none{% endif %}">
-        Endpoint: <span class="font-mono text-slate-700">{{ llm_base_url or '(not set)' }}</span>
-        &nbsp;&middot;&nbsp; Model: <span class="font-mono text-slate-700">{{ llm_model or '(not set)' }}</span>
-        {% if llm_api_key_set %}&nbsp;&middot;&nbsp; Key saved{% endif %}
-      </div>
     </div>
-
     </div><!-- /panel-settings -->
 
     <!-- Chat panel -->
@@ -227,40 +193,41 @@
       </div>
     </div>
 
-    <div class="card p-5">
-      <h2 class="text-sm font-semibold text-slate-600 mb-2">Access Control</h2>
-      <div class="text-xs text-slate-400" style="line-height:1.5">
-        All queries go through Marina. The chatbot only sees tables listed in the
-        selected querying stream's <code class="text-xs font-mono bg-slate-100 px-1 rounded">allowed_tables</code>.
-        No raw SQL is ever generated or executed.
-      </div>
-    </div>
-
     {% if is_configured %}
-    <div class="card p-5">
-      <h2 class="text-sm font-semibold text-slate-600 mb-2">Chat History</h2>
-      <div id="history-empty" class="text-xs text-slate-400">No past conversations yet.</div>
-      <div id="history-list"></div>
-    </div>
-
-    <div class="card p-5" id="tables-card" style="flex:1;min-height:180px;display:flex;flex-direction:column;overflow:hidden">
-      <h2 class="text-sm font-semibold text-slate-600 mb-2">Available Resources</h2>
-      <div id="resources-loading" class="text-xs text-slate-400">Loading...</div>
-      <div id="resources-tabs" style="display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden">
-        <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:0.4rem">
-          <button id="tab-tables" onclick="switchResourceTab('tables')"
-            style="font-size:0.72rem;padding:0.3rem 0.75rem;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);color:var(--accent);font-weight:600">
-            Tables
-          </button>
-          <button id="tab-files" onclick="switchResourceTab('files')"
-            style="font-size:0.72rem;padding:0.3rem 0.75rem;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#94a3b8">
-            Files
-          </button>
-        </div>
-        <div id="resources-tables-list" style="display:flex;flex-direction:column;gap:0.15rem;overflow-y:auto;flex:1"></div>
-        <div id="resources-files-list" style="display:none;flex-direction:column;gap:0.15rem;overflow-y:auto;flex:1"></div>
+    <!-- Combined History + Resources card with side-by-side tabs -->
+    <div class="card p-5" id="side-card" style="flex:1;min-height:240px;display:flex;flex-direction:column;overflow:hidden">
+      <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:0.5rem">
+        <button id="side-tab-history" onclick="switchSideTab('history')"
+          style="font-size:0.78rem;padding:0.4rem 0.85rem;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);color:var(--accent);font-weight:600">
+          Chat History
+        </button>
+        <button id="side-tab-tables" onclick="switchSideTab('tables')"
+          style="font-size:0.78rem;padding:0.4rem 0.85rem;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#94a3b8;font-weight:500">
+          Tables
+        </button>
+        <button id="side-tab-files" onclick="switchSideTab('files')"
+          style="font-size:0.78rem;padding:0.4rem 0.85rem;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#94a3b8;font-weight:500">
+          Files
+        </button>
       </div>
-      <div id="resources-empty" style="display:none" class="text-xs text-slate-400">No resources configured.</div>
+
+      <!-- History panel -->
+      <div id="side-panel-history" style="flex:1;min-height:0;overflow-y:auto">
+        <div id="history-empty" class="text-xs text-slate-400">No past conversations yet.</div>
+        <div id="history-list"></div>
+      </div>
+
+      <!-- Tables / Files panels (driven by /tables fetch) -->
+      <div id="side-panel-tables" style="display:none;flex:1;min-height:0;flex-direction:column;overflow:hidden">
+        <div id="resources-tables-loading" class="text-xs text-slate-400">Loading...</div>
+        <div id="resources-tables-list" style="display:none;flex-direction:column;gap:0.15rem;overflow-y:auto;flex:1"></div>
+        <div id="resources-tables-empty" style="display:none" class="text-xs text-slate-400">No tables allowed for this client.</div>
+      </div>
+      <div id="side-panel-files" style="display:none;flex:1;min-height:0;flex-direction:column;overflow:hidden">
+        <div id="resources-files-loading" class="text-xs text-slate-400">Loading...</div>
+        <div id="resources-files-list" style="display:none;flex-direction:column;gap:0.15rem;overflow-y:auto;flex:1"></div>
+        <div id="resources-files-empty" style="display:none" class="text-xs text-slate-400">No files allowed for this client.</div>
+      </div>
     </div>
     {% endif %}
   </div>
@@ -479,68 +446,90 @@ if (_currentConv.messages.length) {
 renderHistorySidebar();
 
 (function loadAvailableResources() {
+  var tablesLoading = document.getElementById('resources-tables-loading');
+  var filesLoading = document.getElementById('resources-files-loading');
+  var tablesList = document.getElementById('resources-tables-list');
+  var filesList = document.getElementById('resources-files-list');
+  var tablesEmpty = document.getElementById('resources-tables-empty');
+  var filesEmpty = document.getElementById('resources-files-empty');
+
   fetch('./tables')
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      var loading = document.getElementById('resources-loading');
-      var emptyEl = document.getElementById('resources-empty');
       if (data.error) {
-        if (loading) loading.textContent = data.error;
+        if (tablesLoading) tablesLoading.textContent = data.error;
+        if (filesLoading) filesLoading.textContent = data.error;
         return;
       }
-      if (loading) loading.style.display = 'none';
 
       var tables = data.tables || [];
       var files = data.files || [];
       _schemaCache = tables;
       _filesCache = files;
-
       resizeInsightGrid();
 
-      if (!tables.length && !files.length) {
-        if (emptyEl) emptyEl.style.display = '';
-        return;
-      }
-
-      var tabsEl = document.getElementById('resources-tabs');
-      if (tabsEl) tabsEl.style.display = 'flex';
-
-      // Update tab labels with counts
-      var tabTables = document.getElementById('tab-tables');
-      var tabFiles = document.getElementById('tab-files');
+      // Tab counts
+      var tabTables = document.getElementById('side-tab-tables');
+      var tabFiles = document.getElementById('side-tab-files');
       if (tabTables) tabTables.textContent = 'Tables' + (tables.length ? ' (' + tables.length + ')' : '');
       if (tabFiles) tabFiles.textContent = 'Files' + (files.length ? ' (' + files.length + ')' : '');
 
-      var tablesList = document.getElementById('resources-tables-list');
-      var filesList = document.getElementById('resources-files-list');
+      // Tables panel
+      if (tablesLoading) tablesLoading.style.display = 'none';
+      if (!tables.length) {
+        if (tablesEmpty) tablesEmpty.style.display = '';
+      } else if (tablesList) {
+        tablesList.style.display = 'flex';
+        tables.forEach(function(t) {
+          var cols = (t.columns || []);
+          var item = document.createElement('div');
+          item.style.cssText = 'padding:0.25rem 0;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between';
+          item.innerHTML = '<span class="text-xs" style="font-weight:500;color:#334155">' + escapeHtml(t.name) + '</span>'
+            + '<span class="text-xs" style="color:#94a3b8">' + cols.length + ' col' + (cols.length !== 1 ? 's' : '') + '</span>';
+          tablesList.appendChild(item);
+        });
+      }
 
-      tables.forEach(function(t) {
-        var cols = (t.columns || []);
-        var item = document.createElement('div');
-        item.style.cssText = 'padding:0.25rem 0;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between';
-        item.innerHTML = '<span class="text-xs" style="font-weight:500;color:#334155">' + escapeHtml(t.name) + '</span>'
-          + '<span class="text-xs" style="color:#94a3b8">' + cols.length + ' col' + (cols.length !== 1 ? 's' : '') + '</span>';
-        if (tablesList) tablesList.appendChild(item);
-      });
-
-      files.forEach(function(f) {
-        var ct = f.content_type || '';
-        var readable = ct.indexOf('text/') === 0 || ct === 'application/json' || ct === 'application/xml';
-        var badge = readable
-          ? '<span style="display:inline-block;background:#dcfce7;border-radius:0.25rem;padding:0 0.3rem;font-size:0.68rem;color:#16a34a;margin-left:0.3rem">readable</span>'
-          : '<span style="display:inline-block;background:#f1f5f9;border-radius:0.25rem;padding:0 0.3rem;font-size:0.68rem;color:#94a3b8;margin-left:0.3rem">binary</span>';
-        var item = document.createElement('div');
-        item.style.cssText = 'padding:0.25rem 0;border-bottom:1px solid #f1f5f9' + (readable ? '' : ';opacity:0.6');
-        item.innerHTML = '<span class="text-xs" style="font-weight:500;color:' + (readable ? '#334155' : '#94a3b8') + '">'
-          + escapeHtml(f.filename) + badge + '</span>';
-        if (filesList) filesList.appendChild(item);
-      });
+      // Files panel
+      if (filesLoading) filesLoading.style.display = 'none';
+      if (!files.length) {
+        if (filesEmpty) filesEmpty.style.display = '';
+      } else if (filesList) {
+        filesList.style.display = 'flex';
+        files.forEach(function(f) {
+          var ct = f.content_type || '';
+          var readable = ct.indexOf('text/') === 0 || ct === 'application/json' || ct === 'application/xml';
+          var badge = readable
+            ? '<span style="display:inline-block;background:#dcfce7;border-radius:0.25rem;padding:0 0.3rem;font-size:0.68rem;color:#16a34a;margin-left:0.3rem">readable</span>'
+            : '<span style="display:inline-block;background:#f1f5f9;border-radius:0.25rem;padding:0 0.3rem;font-size:0.68rem;color:#94a3b8;margin-left:0.3rem">binary</span>';
+          var item = document.createElement('div');
+          item.style.cssText = 'padding:0.25rem 0;border-bottom:1px solid #f1f5f9' + (readable ? '' : ';opacity:0.6');
+          item.innerHTML = '<span class="text-xs" style="font-weight:500;color:' + (readable ? '#334155' : '#94a3b8') + '">'
+            + escapeHtml(f.filename) + badge + '</span>';
+          filesList.appendChild(item);
+        });
+      }
     })
     .catch(function() {
-      var loading = document.getElementById('resources-loading');
-      if (loading) loading.textContent = 'Failed to load resources.';
+      if (tablesLoading) tablesLoading.textContent = 'Failed to load.';
+      if (filesLoading) filesLoading.textContent = 'Failed to load.';
     });
 })();
+
+function switchSideTab(name) {
+  var tabs = ['history', 'tables', 'files'];
+  tabs.forEach(function(t) {
+    var btn = document.getElementById('side-tab-' + t);
+    var panel = document.getElementById('side-panel-' + t);
+    var active = (t === name);
+    if (panel) panel.style.display = active ? (t === 'history' ? 'block' : 'flex') : 'none';
+    if (btn) {
+      btn.style.borderBottomColor = active ? 'var(--accent)' : 'transparent';
+      btn.style.color = active ? 'var(--accent)' : '#94a3b8';
+      btn.style.fontWeight = active ? '600' : '500';
+    }
+  });
+}
 {% endif %}
 
 (function checkLlmStatus() {
@@ -571,91 +560,47 @@ renderHistorySidebar();
     });
 })();
 
-function toggleConfig() {
-  var form = document.getElementById('config-form');
-  var summary = document.getElementById('config-summary');
-  var label = document.getElementById('config-toggle-label');
-  if (!form) return;
-  var showing = form.style.display !== 'none';
-  form.style.display = showing ? 'none' : '';
-  if (summary) summary.style.display = showing ? '' : 'none';
-  if (label) label.textContent = showing ? 'Edit' : 'Cancel';
+function showSettingsStatus(msg, isError) {
+  var el = document.getElementById('settings-status');
+  if (!el) return;
+  el.style.display = '';
+  el.style.color = isError ? '#dc2626' : '#64748b';
+  el.textContent = msg;
 }
 
-function saveConfig() {
+function saveAllSettings() {
   var clientId = (document.getElementById('config-client-id') || {}).value || '';
   var privateKey = (document.getElementById('config-private-key') || {}).value || '';
-
-  // Empty fields are allowed: server keeps existing values for whichever
-  // field you leave blank.
-  showConfigStatus('Saving...', false);
-
-  var formData = new FormData();
-  formData.append('client_id', clientId);
-  formData.append('private_key', privateKey);
-
-  fetch('./config', { method: 'POST', body: formData })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.ok) {
-        window.location.reload();
-      } else {
-        showConfigStatus('Error: ' + (data.error || 'unknown'), true);
-      }
-    })
-    .catch(function(e) { showConfigStatus('Error: ' + e, true); });
-}
-
-function showConfigStatus(msg, isError) {
-  var el = document.getElementById('config-status');
-  if (!el) return;
-  el.style.display = '';
-  el.style.color = isError ? '#dc2626' : '#64748b';
-  el.textContent = msg;
-}
-
-function toggleLlm() {
-  var form = document.getElementById('llm-form');
-  var summary = document.getElementById('llm-summary');
-  var label = document.getElementById('llm-toggle-label');
-  var showing = form.style.display !== 'none';
-  form.style.display = showing ? 'none' : 'block';
-  summary.style.display = showing ? 'block' : 'none';
-  if (label) label.textContent = showing ? 'Edit' : 'Cancel';
-}
-
-function showLlmStatus(msg, isError) {
-  var el = document.getElementById('llm-status-msg');
-  if (!el) return;
-  el.style.display = '';
-  el.style.color = isError ? '#dc2626' : '#64748b';
-  el.textContent = msg;
-}
-
-function saveLlmConfig() {
   var baseUrl = (document.getElementById('llm-base-url') || {}).value || '';
   var apiKey = (document.getElementById('llm-api-key') || {}).value || '';
   var model = (document.getElementById('llm-model') || {}).value || '';
 
   // Empty fields are allowed: server keeps existing values for whichever
-  // fields you leave blank.
-  showLlmStatus('Saving...', false);
+  // fields you leave blank. Both endpoints get hit in parallel.
+  showSettingsStatus('Saving...', false);
 
-  var formData = new FormData();
-  formData.append('base_url', baseUrl);
-  formData.append('api_key', apiKey);
-  formData.append('model', model);
+  var fdConfig = new FormData();
+  fdConfig.append('client_id', clientId);
+  fdConfig.append('private_key', privateKey);
 
-  fetch('./llm-config', { method: 'POST', body: formData })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.ok) {
-        window.location.reload();
-      } else {
-        showLlmStatus('Error: ' + (data.error || 'unknown'), true);
+  var fdLlm = new FormData();
+  fdLlm.append('base_url', baseUrl);
+  fdLlm.append('api_key', apiKey);
+  fdLlm.append('model', model);
+
+  Promise.all([
+    fetch('./config', { method: 'POST', body: fdConfig }).then(function(r) { return r.json(); }),
+    fetch('./llm-config', { method: 'POST', body: fdLlm }).then(function(r) { return r.json(); }),
+  ])
+    .then(function(results) {
+      var bad = results.filter(function(r) { return !r.ok; });
+      if (bad.length) {
+        showSettingsStatus('Error: ' + (bad[0].error || 'save failed'), true);
+        return;
       }
+      window.location.reload();
     })
-    .catch(function(e) { showLlmStatus('Error: ' + e, true); });
+    .catch(function(e) { showSettingsStatus('Error: ' + e, true); });
 }
 
 function switchTab(name) {
@@ -1095,24 +1040,6 @@ async function submitQuestion() {
     submitBtn.onclick = submitQuestion;
     submitBtn.textContent = 'Ask';
     input.focus();
-  }
-}
-
-function switchResourceTab(tab) {
-  var tablesList = document.getElementById('resources-tables-list');
-  var filesList = document.getElementById('resources-files-list');
-  var tabTables = document.getElementById('tab-tables');
-  var tabFiles = document.getElementById('tab-files');
-  if (tab === 'tables') {
-    if (tablesList) tablesList.style.display = 'flex';
-    if (filesList) filesList.style.display = 'none';
-    if (tabTables) { tabTables.style.borderBottomColor = 'var(--accent)'; tabTables.style.color = 'var(--accent)'; tabTables.style.fontWeight = '600'; }
-    if (tabFiles) { tabFiles.style.borderBottomColor = 'transparent'; tabFiles.style.color = '#94a3b8'; tabFiles.style.fontWeight = 'normal'; }
-  } else {
-    if (tablesList) tablesList.style.display = 'none';
-    if (filesList) filesList.style.display = 'flex';
-    if (tabFiles) { tabFiles.style.borderBottomColor = 'var(--accent)'; tabFiles.style.color = 'var(--accent)'; tabFiles.style.fontWeight = '600'; }
-    if (tabTables) { tabTables.style.borderBottomColor = 'transparent'; tabTables.style.color = '#94a3b8'; tabTables.style.fontWeight = 'normal'; }
   }
 }
 
