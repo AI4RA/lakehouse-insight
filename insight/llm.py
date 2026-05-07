@@ -25,21 +25,32 @@ _RETRYABLE_STREAM_ERRORS = (
 
 logger = logging.getLogger(__name__)
 
+from . import llm_config as _llm_config
+
 
 # ---------------------------------------------------------------------------
 # Configuration
+#
+# Resolution order: file (set via Insight UI) wins, env var falls through.
 # ---------------------------------------------------------------------------
 
 def _base_url() -> str:
-    return os.environ.get("LLM_BASE_URL", "").strip()
+    cfg = _llm_config.read()
+    return (cfg.get("base_url", "").strip()
+            or os.environ.get("LLM_BASE_URL", "").strip())
 
 
 def _api_key() -> str:
-    return os.environ.get("LLM_API_KEY", "").strip() or "not-required"
+    cfg = _llm_config.read()
+    return (cfg.get("api_key", "").strip()
+            or os.environ.get("LLM_API_KEY", "").strip()
+            or "not-required")
 
 
 def get_model() -> str:
-    return os.environ.get("LLM_MODEL", "").strip()
+    cfg = _llm_config.read()
+    return (cfg.get("model", "").strip()
+            or os.environ.get("LLM_MODEL", "").strip())
 
 
 def is_configured() -> bool:

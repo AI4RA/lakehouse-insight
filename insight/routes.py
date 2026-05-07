@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from . import auth as _auth
 from . import credentials as _credentials
 from . import llm as _llm
+from . import llm_config as _llm_config
 from . import marina_client as _marina
 
 logger = logging.getLogger(__name__)
@@ -31,14 +32,32 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     @app.get("/", response_class=HTMLResponse, summary="Insight: AI-powered data exploration")
     async def insight_page(request: Request):
         saved_client_id, saved_key = _credentials.read()
+        llm_cfg = _llm_config.read()
         return templates.TemplateResponse(
             request,
             "insight.html",
             {
                 "saved_client_id": saved_client_id,
                 "is_configured": bool(saved_client_id and saved_key),
+                "llm_base_url": llm_cfg.get("base_url", ""),
+                "llm_model": llm_cfg.get("model", ""),
+                # Never echo the API key back; just signal whether one is set.
+                "llm_api_key_set": bool(llm_cfg.get("api_key", "").strip()),
             },
         )
+
+    @app.post("/llm-config", summary="Save LLM endpoint config")
+    async def insight_llm_save(
+        base_url: str = Form(""),
+        api_key: str = Form(""),
+        model: str = Form(""),
+    ):
+        # Empty api_key field means "keep the existing key" (UI never echoes it back).
+        if not api_key.strip():
+            existing = _llm_config.read().get("api_key", "")
+            api_key = existing
+        _llm_config.write(base_url.strip(), api_key.strip(), model.strip())
+        return JSONResponse({"ok": True})
 
     @app.get("/llm-status", summary="Test LLM connectivity")
     async def insight_llm_status():
