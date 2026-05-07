@@ -166,10 +166,16 @@
           </div>
         </div>
 
-        <!-- Single save button for the whole tab -->
-        <div class="flex items-center gap-3" style="border-top:1px solid var(--border);padding-top:1rem">
+        <!-- Save + Test Connection -->
+        <div class="flex items-center gap-3 flex-wrap" style="border-top:1px solid var(--border);padding-top:1rem">
           <button class="btn-cyan text-xs" onclick="saveAllSettings()">Save</button>
+          <button class="btn-outline text-xs" onclick="testLlmConnection()" id="test-llm-btn">
+            <span id="test-llm-text">Test Connection</span>
+          </button>
           <span id="settings-status" class="text-xs text-slate-400" style="display:none"></span>
+        </div>
+        <div class="text-xs text-slate-400" style="margin-top:-0.25rem">
+          Test Connection probes the saved LLM endpoint. Save first to test new values.
         </div>
       </div>
     </div>
@@ -631,6 +637,27 @@ function toggleKeyVisibility(id) {
   var el = document.getElementById(id);
   if (!el) return;
   el.type = (el.type === 'password') ? 'text' : 'password';
+}
+
+function testLlmConnection() {
+  var btn = document.getElementById('test-llm-btn');
+  var text = document.getElementById('test-llm-text');
+  if (btn) btn.disabled = true;
+  if (text) text.textContent = 'Testing...';
+  showSettingsStatus('', false);
+  fetch('./llm-status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (text) text.textContent = 'Test Connection';
+      if (btn) btn.disabled = false;
+      var msg = data.message || (data.ok ? 'OK' : 'failed');
+      showSettingsStatus((data.ok ? '' : 'Connection failed: ') + msg, !data.ok);
+    })
+    .catch(function(e) {
+      if (text) text.textContent = 'Test Connection';
+      if (btn) btn.disabled = false;
+      showSettingsStatus('Connection failed: ' + e, true);
+    });
 }
 
 function saveAllSettings() {
