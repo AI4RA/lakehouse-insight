@@ -38,8 +38,25 @@
   <div class="lg:col-span-2 flex flex-col gap-4" style="height:100%;min-height:0;overflow:hidden">
 
     <div id="llm-banner" class="px-4 py-2 rounded text-xs" style="display:none;background:#fef9c3;border:1px solid #fde047;color:#713f12">
-      Model can't be reached. Set Base URL, API Key, and Model in the LLM Endpoint card below.
+      Model can't be reached. Open the Settings tab and fill in the LLM Endpoint section.
     </div>
+
+    <!-- Tab strip -->
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">
+      <button id="tab-btn-chat" class="tab-btn"
+        onclick="switchTab('chat')"
+        style="font-size:0.78rem;padding:0.5rem 1rem;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#94a3b8;font-weight:500">
+        Chat
+      </button>
+      <button id="tab-btn-settings" class="tab-btn"
+        onclick="switchTab('settings')"
+        style="font-size:0.78rem;padding:0.5rem 1rem;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#94a3b8;font-weight:500">
+        Settings
+      </button>
+    </div>
+
+    <!-- Settings panel (Marina client + LLM endpoint) -->
+    <div id="panel-settings" class="flex flex-col gap-4" style="flex:1;min-height:0;overflow-y:auto">
 
     <!-- Config form (always visible, collapsible when configured) -->
     <div class="card p-5" id="config-card">
@@ -142,6 +159,10 @@
       </div>
     </div>
 
+    </div><!-- /panel-settings -->
+
+    <!-- Chat panel -->
+    <div id="panel-chat" class="flex flex-col" style="flex:1;min-height:0;overflow:hidden">
     {% if is_configured %}
     <!-- Chat UI -->
     <div class="card flex flex-col" style="flex:1;overflow:hidden;min-height:0">
@@ -170,9 +191,10 @@
     </div>
     {% else %}
     <div class="card p-6 flex items-center justify-center text-sm text-slate-400" style="flex:1;min-height:0">
-      Provide a client_id and private key above to start chatting.
+      Open the Settings tab to configure your client_id and private key.
     </div>
     {% endif %}
+    </div><!-- /panel-chat -->
 
   </div>
 
@@ -563,11 +585,9 @@ function toggleConfig() {
 function saveConfig() {
   var clientId = (document.getElementById('config-client-id') || {}).value || '';
   var privateKey = (document.getElementById('config-private-key') || {}).value || '';
-  var statusEl = document.getElementById('config-status');
 
-  if (!clientId) { showConfigStatus('Enter a client_id.', true); return; }
-  if (!privateKey.trim()) { showConfigStatus('Private key is required.', true); return; }
-
+  // Empty fields are allowed: server keeps existing values for whichever
+  // field you leave blank.
   showConfigStatus('Saving...', false);
 
   var formData = new FormData();
@@ -617,9 +637,8 @@ function saveLlmConfig() {
   var apiKey = (document.getElementById('llm-api-key') || {}).value || '';
   var model = (document.getElementById('llm-model') || {}).value || '';
 
-  if (!baseUrl.trim()) { showLlmStatus('Base URL is required.', true); return; }
-  if (!model.trim()) { showLlmStatus('Model is required.', true); return; }
-
+  // Empty fields are allowed: server keeps existing values for whichever
+  // fields you leave blank.
   showLlmStatus('Saving...', false);
 
   var formData = new FormData();
@@ -638,6 +657,30 @@ function saveLlmConfig() {
     })
     .catch(function(e) { showLlmStatus('Error: ' + e, true); });
 }
+
+function switchTab(name) {
+  var tabs = ['chat', 'settings'];
+  tabs.forEach(function(t) {
+    var btn = document.getElementById('tab-btn-' + t);
+    var panel = document.getElementById('panel-' + t);
+    var active = (t === name);
+    if (panel) panel.style.display = active ? '' : 'none';
+    if (btn) {
+      btn.style.borderBottomColor = active ? 'var(--accent)' : 'transparent';
+      btn.style.color = active ? 'var(--accent)' : '#94a3b8';
+      btn.style.fontWeight = active ? '600' : '500';
+    }
+  });
+  try { sessionStorage.setItem('insight_tab', name); } catch(e) {}
+}
+
+(function initTabs() {
+  // Default to Settings if the user hasn't fully configured Marina credentials.
+  var defaultTab = {{ ('chat' if is_configured else 'settings') | tojson }};
+  var saved = null;
+  try { saved = sessionStorage.getItem('insight_tab'); } catch(e) {}
+  switchTab(saved || defaultTab);
+})();
 
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {

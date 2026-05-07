@@ -46,17 +46,19 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             },
         )
 
-    @app.post("/llm-config", summary="Save LLM endpoint config")
+    @app.post("/llm-config", summary="Save LLM endpoint config (partial)")
     async def insight_llm_save(
         base_url: str = Form(""),
         api_key: str = Form(""),
         model: str = Form(""),
     ):
-        # Empty api_key field means "keep the existing key" (UI never echoes it back).
-        if not api_key.strip():
-            existing = _llm_config.read().get("api_key", "")
-            api_key = existing
-        _llm_config.write(base_url.strip(), api_key.strip(), model.strip())
+        # Empty field = keep the existing value. Lets the user update one
+        # field at a time without retyping the others.
+        existing = _llm_config.read()
+        merged_base = base_url.strip() or existing.get("base_url", "")
+        merged_key = api_key.strip() or existing.get("api_key", "")
+        merged_model = model.strip() or existing.get("model", "")
+        _llm_config.write(merged_base, merged_key, merged_model)
         return JSONResponse({"ok": True})
 
     @app.get("/llm-status", summary="Test LLM connectivity")
@@ -77,12 +79,17 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
-    @app.post("/config", summary="Save client_id and private key")
+    @app.post("/config", summary="Save client_id and private key (partial)")
     async def insight_config(
-        client_id: str = Form(...),
-        private_key: str = Form(...),
+        client_id: str = Form(""),
+        private_key: str = Form(""),
     ):
-        _credentials.write(client_id.strip(), private_key.strip())
+        # Empty field = keep the existing value. Lets the user update one
+        # field at a time without retyping the other.
+        existing_id, existing_key = _credentials.read()
+        merged_id = client_id.strip() or existing_id
+        merged_key = private_key.strip() or existing_key
+        _credentials.write(merged_id, merged_key)
         return JSONResponse({"ok": True})
 
     @app.get("/preview/{file_hash}", summary="Proxy a file from Marina for preview rendering")
