@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
     """Attach insight routes to a FastAPI app."""
 
+    @app.get("/health", summary="Liveness probe")
+    async def insight_health():
+        return JSONResponse({"status": "ok", "service": "insight"})
+
     @app.get("/", response_class=HTMLResponse, summary="Insight -- AI-powered data exploration")
     async def insight_page(request: Request):
         saved_client_id, saved_key = _credentials.read()
