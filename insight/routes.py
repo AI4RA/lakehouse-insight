@@ -47,11 +47,10 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 "llm_configured": llm_configured,
                 "llm_base_url": llm_cfg.get("base_url", ""),
                 "llm_model": llm_cfg.get("model", ""),
+                "llm_api_key": llm_cfg.get("api_key", ""),
                 "llm_vision_base_url": llm_cfg.get("vision_base_url", ""),
                 "llm_vision_model": llm_cfg.get("vision_model", ""),
-                # Never echo API keys back; just signal whether one is set.
-                "llm_api_key_set": bool(llm_cfg.get("api_key", "").strip()),
-                "llm_vision_api_key_set": bool(llm_cfg.get("vision_api_key", "").strip()),
+                "llm_vision_api_key": llm_cfg.get("vision_api_key", ""),
             },
         )
 

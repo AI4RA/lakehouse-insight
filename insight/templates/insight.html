@@ -102,16 +102,21 @@
               <div class="text-xs text-slate-400 mt-1">OpenAI-compatible endpoint (MindRouter, OpenAI, vLLM, etc).</div>
             </div>
             <div>
-              <label class="text-xs text-slate-500 font-medium block mb-1" style="display:flex;align-items:center;gap:0.4rem">
-                API Key
-                {% if llm_api_key_set %}<span class="badge-ok" style="font-size:0.65rem;font-weight:500;padding:0.05rem 0.4rem">saved</span>{% endif %}
-              </label>
-              <input type="password" id="llm-api-key"
-                placeholder="{% if llm_api_key_set %}(leave blank to keep saved key){% else %}sk-...{% endif %}"
-                autocomplete="off"
-                style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
-              <div class="text-xs text-slate-400 mt-1">
-                {% if llm_api_key_set %}A key is already saved. Leave blank to keep, or paste a new one to replace.{% else %}Paste the API key for the endpoint above.{% endif %}
+              <label class="text-xs text-slate-500 font-medium block mb-1">API Key</label>
+              <div style="position:relative">
+                <input type="password" id="llm-api-key"
+                  placeholder="sk-..."
+                  value="{{ llm_api_key or '' }}"
+                  autocomplete="off"
+                  style="width:100%;font-size:0.82rem;padding:0.4rem 2.4rem 0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+                <button type="button" onclick="toggleKeyVisibility('llm-api-key')"
+                  style="position:absolute;right:0.4rem;top:50%;transform:translateY(-50%);padding:0.2rem;background:none;border:none;cursor:pointer;color:#94a3b8"
+                  title="Show/hide key">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/>
+                    <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8m8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7"/>
+                  </svg>
+                </button>
               </div>
             </div>
             <div>
@@ -134,14 +139,22 @@
                 style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
             </div>
             <div>
-              <label class="text-xs text-slate-500 font-medium block mb-1" style="display:flex;align-items:center;gap:0.4rem">
-                Vision API Key
-                {% if llm_vision_api_key_set %}<span class="badge-ok" style="font-size:0.65rem;font-weight:500;padding:0.05rem 0.4rem">saved</span>{% endif %}
-              </label>
-              <input type="password" id="llm-vision-api-key"
-                placeholder="{% if llm_vision_api_key_set %}(leave blank to keep saved key){% else %}(leave blank to reuse main API key){% endif %}"
-                autocomplete="off"
-                style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+              <label class="text-xs text-slate-500 font-medium block mb-1">Vision API Key</label>
+              <div style="position:relative">
+                <input type="password" id="llm-vision-api-key"
+                  placeholder="(leave blank to reuse main API key)"
+                  value="{{ llm_vision_api_key or '' }}"
+                  autocomplete="off"
+                  style="width:100%;font-size:0.82rem;padding:0.4rem 2.4rem 0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+                <button type="button" onclick="toggleKeyVisibility('llm-vision-api-key')"
+                  style="position:absolute;right:0.4rem;top:50%;transform:translateY(-50%);padding:0.2rem;background:none;border:none;cursor:pointer;color:#94a3b8"
+                  title="Show/hide key">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/>
+                    <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8m8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7"/>
+                  </svg>
+                </button>
+              </div>
             </div>
             <div>
               <label class="text-xs text-slate-500 font-medium block mb-1">Vision Model</label>
@@ -612,6 +625,12 @@ function showSettingsStatus(msg, isError) {
   el.style.display = '';
   el.style.color = isError ? '#dc2626' : '#64748b';
   el.textContent = msg;
+}
+
+function toggleKeyVisibility(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.type = (el.type === 'password') ? 'text' : 'password';
 }
 
 function saveAllSettings() {
