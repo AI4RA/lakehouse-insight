@@ -34,6 +34,9 @@ def build_app() -> FastAPI:
     """Construct a FastAPI app with insight routes, templates, and (optional) static."""
     app = FastAPI(title="Insight", docs_url="/docs", redoc_url=None)
     templates = Jinja2Templates(directory=str(_PACKAGE_DIR / "templates"))
+    # Jinja2 3.1.5+ keys its LRUCache on values that can include unhashable
+    # globals (dicts), which breaks template lookup. Disable the cache.
+    templates.env.cache = None
     static_dir = _PACKAGE_DIR / "static"
     if static_dir.is_dir():
         app.mount(
