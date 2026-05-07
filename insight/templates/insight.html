@@ -73,9 +73,12 @@
               <div class="text-xs text-slate-400 mt-1">The client_id of a querying stream registered with Marina.</div>
             </div>
             <div>
-              <label class="text-xs text-slate-500 font-medium block mb-1">Private Key (PEM)</label>
+              <label class="text-xs text-slate-500 font-medium block mb-1" style="display:flex;align-items:center;gap:0.4rem">
+                Private Key (PEM)
+                {% if is_configured %}<span class="badge-ok" style="font-size:0.65rem;font-weight:500;padding:0.05rem 0.4rem">saved</span>{% endif %}
+              </label>
               <textarea id="config-private-key" rows="5"
-                placeholder="{% if is_configured %}(saved -- leave blank to keep){% else %}-----BEGIN PRIVATE KEY-----&#10;...{% endif %}"
+                placeholder="{% if is_configured %}(leave blank to keep saved key){% else %}-----BEGIN PRIVATE KEY-----&#10;...{% endif %}"
                 style="width:100%;font-size:0.72rem;font-family:monospace;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem;resize:vertical"></textarea>
               <div class="text-xs text-slate-400 mt-1">
                 {% if is_configured %}A key is already saved. Leave blank to keep, or paste a new one to replace.{% else %}Paste the private key generated when you created this client.{% endif %}
@@ -99,9 +102,12 @@
               <div class="text-xs text-slate-400 mt-1">OpenAI-compatible endpoint (MindRouter, OpenAI, vLLM, etc).</div>
             </div>
             <div>
-              <label class="text-xs text-slate-500 font-medium block mb-1">API Key</label>
+              <label class="text-xs text-slate-500 font-medium block mb-1" style="display:flex;align-items:center;gap:0.4rem">
+                API Key
+                {% if llm_api_key_set %}<span class="badge-ok" style="font-size:0.65rem;font-weight:500;padding:0.05rem 0.4rem">saved</span>{% endif %}
+              </label>
               <input type="password" id="llm-api-key"
-                placeholder="{% if llm_api_key_set %}(saved -- leave blank to keep){% else %}sk-...{% endif %}"
+                placeholder="{% if llm_api_key_set %}(leave blank to keep saved key){% else %}sk-...{% endif %}"
                 autocomplete="off"
                 style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
               <div class="text-xs text-slate-400 mt-1">
@@ -116,37 +122,34 @@
                 style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
             </div>
 
-            <details {% if llm_vision_base_url or llm_vision_model or llm_vision_api_key_set %}open{% endif %} style="margin-top:0.4rem">
-              <summary style="cursor:pointer;font-size:0.72rem;color:#64748b;font-weight:500;padding:0.2rem 0">
-                Vision model (optional)
-              </summary>
-              <div class="flex flex-col gap-3" style="padding-top:0.6rem">
-                <div class="text-xs text-slate-400" style="line-height:1.4">
-                  Separate endpoint and model used for image-aware calls. Leave blank to fall back to the main LLM endpoint.
-                </div>
-                <div>
-                  <label class="text-xs text-slate-500 font-medium block mb-1">Vision Base URL</label>
-                  <input type="text" id="llm-vision-base-url"
-                    placeholder="(leave blank to reuse main Base URL)"
-                    value="{{ llm_vision_base_url or '' }}"
-                    style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
-                </div>
-                <div>
-                  <label class="text-xs text-slate-500 font-medium block mb-1">Vision API Key</label>
-                  <input type="password" id="llm-vision-api-key"
-                    placeholder="{% if llm_vision_api_key_set %}(saved -- leave blank to keep){% else %}(leave blank to reuse main API key){% endif %}"
-                    autocomplete="off"
-                    style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
-                </div>
-                <div>
-                  <label class="text-xs text-slate-500 font-medium block mb-1">Vision Model</label>
-                  <input type="text" id="llm-vision-model"
-                    placeholder="e.g. gpt-4o or claude-3-5-sonnet"
-                    value="{{ llm_vision_model or '' }}"
-                    style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
-                </div>
-              </div>
-            </details>
+            <h4 class="text-xs font-semibold text-slate-500 mt-2">Vision model (optional)</h4>
+            <div class="text-xs text-slate-400" style="line-height:1.4">
+              Separate endpoint and model used for image-aware calls. Leave blank to fall back to the main LLM endpoint.
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 font-medium block mb-1">Vision Base URL</label>
+              <input type="text" id="llm-vision-base-url"
+                placeholder="(leave blank to reuse main Base URL)"
+                value="{{ llm_vision_base_url or '' }}"
+                style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 font-medium block mb-1" style="display:flex;align-items:center;gap:0.4rem">
+                Vision API Key
+                {% if llm_vision_api_key_set %}<span class="badge-ok" style="font-size:0.65rem;font-weight:500;padding:0.05rem 0.4rem">saved</span>{% endif %}
+              </label>
+              <input type="password" id="llm-vision-api-key"
+                placeholder="{% if llm_vision_api_key_set %}(leave blank to keep saved key){% else %}(leave blank to reuse main API key){% endif %}"
+                autocomplete="off"
+                style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 font-medium block mb-1">Vision Model</label>
+              <input type="text" id="llm-vision-model"
+                placeholder="e.g. gpt-4o or claude-3-5-sonnet"
+                value="{{ llm_vision_model or '' }}"
+                style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+            </div>
           </div>
         </div>
 
