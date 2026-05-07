@@ -1004,6 +1004,7 @@ async function submitQuestion() {
   var answerEl = null;   // the <div> inside the bubble that holds streaming text
   var bubbleEl = null;   // the outer bubble element
   var pendingPlots = []; // plot specs accumulated during this response
+  var assistantSaved = false; // set true when 'done' fires; falls back to finally otherwise
 
   // Show thinking indicator
   var thinkingEl = document.createElement('div');
@@ -1121,12 +1122,23 @@ async function submitQuestion() {
           if (bubbleEl) appendResults(bubbleEl, data.results);
           _currentConv.messages.push({ role: 'assistant', text: answerText, results: data.results || [], plots: pendingPlots });
           _saveCurrentConv();
+          assistantSaved = true;
 
         } else if (data.type === 'error') {
           setStatus('');
           clearStallTimer();
           removeThinking();
+          var errText = '_(error: ' + data.text + ')_';
           addMessage('assistant', '<div style="color:#dc2626">' + escapeHtml(data.text) + '</div>');
+          // Persist whatever we got plus the error so the conversation survives reload.
+          _currentConv.messages.push({
+            role: 'assistant',
+            text: answerText ? answerText + '\n\n' + errText : errText,
+            results: [],
+            plots: pendingPlots,
+          });
+          _saveCurrentConv();
+          assistantSaved = true;
         }
       }
     }
@@ -1138,6 +1150,18 @@ async function submitQuestion() {
   } finally {
     _activeReader = null;
     clearStallTimer();
+    // Fallback persist: if we got tokens but never saw 'done' (stream cut,
+    // user clicked Stop, network blip), still save the partial answer so it
+    // survives a reload.
+    if (!assistantSaved && answerText) {
+      _currentConv.messages.push({
+        role: 'assistant',
+        text: answerText,
+        results: [],
+        plots: pendingPlots,
+      });
+      _saveCurrentConv();
+    }
     input.disabled = false;
     submitBtn.onclick = submitQuestion;
     submitBtn.textContent = 'Ask';
