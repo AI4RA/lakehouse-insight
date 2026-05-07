@@ -53,8 +53,28 @@ def get_model() -> str:
             or os.environ.get("LLM_MODEL", "").strip())
 
 
+def vision_base_url() -> str:
+    cfg = _llm_config.read()
+    return (cfg.get("vision_base_url", "").strip()
+            or os.environ.get("LLM_VISION_BASE_URL", "").strip()
+            or _base_url())
+
+
+def vision_api_key() -> str:
+    cfg = _llm_config.read()
+    return (cfg.get("vision_api_key", "").strip()
+            or os.environ.get("LLM_VISION_API_KEY", "").strip()
+            or _api_key())
+
+
+def get_vision_model() -> str:
+    cfg = _llm_config.read()
+    return (cfg.get("vision_model", "").strip()
+            or os.environ.get("LLM_VISION_MODEL", "").strip())
+
+
 def is_configured() -> bool:
-    return bool(_base_url())
+    return bool(_base_url() and get_model())
 
 
 def test_connection() -> tuple[bool, str]:

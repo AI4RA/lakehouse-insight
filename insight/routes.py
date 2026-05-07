@@ -33,16 +33,25 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     async def insight_page(request: Request):
         saved_client_id, saved_key = _credentials.read()
         llm_cfg = _llm_config.read()
+        marina_configured = bool(saved_client_id and saved_key)
+        llm_configured = bool(
+            llm_cfg.get("base_url", "").strip() and llm_cfg.get("model", "").strip()
+        )
         return templates.TemplateResponse(
             request,
             "insight.html",
             {
                 "saved_client_id": saved_client_id,
-                "is_configured": bool(saved_client_id and saved_key),
+                # Marina credentials are set; LLM may or may not be.
+                "is_configured": marina_configured,
+                "llm_configured": llm_configured,
                 "llm_base_url": llm_cfg.get("base_url", ""),
                 "llm_model": llm_cfg.get("model", ""),
-                # Never echo the API key back; just signal whether one is set.
+                "llm_vision_base_url": llm_cfg.get("vision_base_url", ""),
+                "llm_vision_model": llm_cfg.get("vision_model", ""),
+                # Never echo API keys back; just signal whether one is set.
                 "llm_api_key_set": bool(llm_cfg.get("api_key", "").strip()),
+                "llm_vision_api_key_set": bool(llm_cfg.get("vision_api_key", "").strip()),
             },
         )
 
@@ -51,6 +60,9 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         base_url: str = Form(""),
         api_key: str = Form(""),
         model: str = Form(""),
+        vision_base_url: str = Form(""),
+        vision_api_key: str = Form(""),
+        vision_model: str = Form(""),
     ):
         # Empty field = keep the existing value. Lets the user update one
         # field at a time without retyping the others.
@@ -58,7 +70,13 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         merged_base = base_url.strip() or existing.get("base_url", "")
         merged_key = api_key.strip() or existing.get("api_key", "")
         merged_model = model.strip() or existing.get("model", "")
-        _llm_config.write(merged_base, merged_key, merged_model)
+        merged_vbase = vision_base_url.strip() or existing.get("vision_base_url", "")
+        merged_vkey = vision_api_key.strip() or existing.get("vision_api_key", "")
+        merged_vmodel = vision_model.strip() or existing.get("vision_model", "")
+        _llm_config.write(
+            merged_base, merged_key, merged_model,
+            merged_vbase, merged_vkey, merged_vmodel,
+        )
         return JSONResponse({"ok": True})
 
     @app.get("/llm-status", summary="Test LLM connectivity")

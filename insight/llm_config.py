@@ -20,7 +20,14 @@ def read() -> dict:
     return {}
 
 
-def write(base_url: str, api_key: str, model: str) -> None:
+def write(
+    base_url: str,
+    api_key: str,
+    model: str,
+    vision_base_url: str = "",
+    vision_api_key: str = "",
+    vision_model: str = "",
+) -> None:
     """Persist LLM config to disk with mode 0600."""
     path = Path(CONFIG_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -28,5 +35,8 @@ def write(base_url: str, api_key: str, model: str) -> None:
         "base_url": base_url,
         "api_key": api_key,
         "model": model,
+        "vision_base_url": vision_base_url,
+        "vision_api_key": vision_api_key,
+        "vision_model": vision_model,
     }))
     path.chmod(0o600)

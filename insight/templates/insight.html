@@ -115,6 +115,38 @@
                 value="{{ llm_model or '' }}"
                 style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
             </div>
+
+            <details {% if llm_vision_base_url or llm_vision_model or llm_vision_api_key_set %}open{% endif %} style="margin-top:0.4rem">
+              <summary style="cursor:pointer;font-size:0.72rem;color:#64748b;font-weight:500;padding:0.2rem 0">
+                Vision model (optional)
+              </summary>
+              <div class="flex flex-col gap-3" style="padding-top:0.6rem">
+                <div class="text-xs text-slate-400" style="line-height:1.4">
+                  Separate endpoint and model used for image-aware calls. Leave blank to fall back to the main LLM endpoint.
+                </div>
+                <div>
+                  <label class="text-xs text-slate-500 font-medium block mb-1">Vision Base URL</label>
+                  <input type="text" id="llm-vision-base-url"
+                    placeholder="(leave blank to reuse main Base URL)"
+                    value="{{ llm_vision_base_url or '' }}"
+                    style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+                </div>
+                <div>
+                  <label class="text-xs text-slate-500 font-medium block mb-1">Vision API Key</label>
+                  <input type="password" id="llm-vision-api-key"
+                    placeholder="{% if llm_vision_api_key_set %}(saved -- leave blank to keep){% else %}(leave blank to reuse main API key){% endif %}"
+                    autocomplete="off"
+                    style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+                </div>
+                <div>
+                  <label class="text-xs text-slate-500 font-medium block mb-1">Vision Model</label>
+                  <input type="text" id="llm-vision-model"
+                    placeholder="e.g. gpt-4o or claude-3-5-sonnet"
+                    value="{{ llm_vision_model or '' }}"
+                    style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
+                </div>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -533,31 +565,42 @@ function switchSideTab(name) {
 {% endif %}
 
 (function checkLlmStatus() {
+  function _markUnavailable() {
+    var banner = document.getElementById('llm-banner');
+    var input = document.getElementById('chat-input');
+    var submit = document.getElementById('chat-submit');
+    if (banner) banner.style.display = '';
+    if (input) {
+      input.disabled = true;
+      input.style.background = '#f8fafc';
+      input.style.color = '#94a3b8';
+      input.style.cursor = 'not-allowed';
+      input.placeholder = 'LLM unavailable. Open Settings to fix.';
+    }
+    if (submit) submit.disabled = true;
+    // Auto-flip to Settings unless the user explicitly chose Chat this session.
+    var saved = null;
+    try { saved = sessionStorage.getItem('insight_tab'); } catch(e) {}
+    if (saved !== 'chat') switchTab('settings');
+  }
+
   fetch('./llm-status')
     .then(function(r) { return r.json(); })
     .then(function(data) {
+      if (!data.ok) { _markUnavailable(); return; }
       var banner = document.getElementById('llm-banner');
       var input = document.getElementById('chat-input');
       var submit = document.getElementById('chat-submit');
-      var ok = data.ok;
-      if (banner) banner.style.display = ok ? 'none' : '';
+      if (banner) banner.style.display = 'none';
       if (input) {
-        input.disabled = !ok;
-        input.style.background = ok ? '' : '#f8fafc';
-        input.style.color = ok ? '' : '#94a3b8';
-        input.style.cursor = ok ? '' : 'not-allowed';
-        if (!ok) input.placeholder = 'LLM unavailable — go to Settings to add credentials.';
+        input.disabled = false;
+        input.style.background = '';
+        input.style.color = '';
+        input.style.cursor = '';
       }
-      if (submit) submit.disabled = !ok;
+      if (submit) submit.disabled = false;
     })
-    .catch(function() {
-      var banner = document.getElementById('llm-banner');
-      var input = document.getElementById('chat-input');
-      var submit = document.getElementById('chat-submit');
-      if (banner) banner.style.display = '';
-      if (input) { input.disabled = true; input.style.background = '#f8fafc'; input.style.color = '#94a3b8'; input.style.cursor = 'not-allowed'; }
-      if (submit) submit.disabled = true;
-    });
+    .catch(_markUnavailable);
 })();
 
 function showSettingsStatus(msg, isError) {
@@ -569,24 +612,23 @@ function showSettingsStatus(msg, isError) {
 }
 
 function saveAllSettings() {
-  var clientId = (document.getElementById('config-client-id') || {}).value || '';
-  var privateKey = (document.getElementById('config-private-key') || {}).value || '';
-  var baseUrl = (document.getElementById('llm-base-url') || {}).value || '';
-  var apiKey = (document.getElementById('llm-api-key') || {}).value || '';
-  var model = (document.getElementById('llm-model') || {}).value || '';
+  function val(id) { return (document.getElementById(id) || {}).value || ''; }
 
   // Empty fields are allowed: server keeps existing values for whichever
   // fields you leave blank. Both endpoints get hit in parallel.
   showSettingsStatus('Saving...', false);
 
   var fdConfig = new FormData();
-  fdConfig.append('client_id', clientId);
-  fdConfig.append('private_key', privateKey);
+  fdConfig.append('client_id', val('config-client-id'));
+  fdConfig.append('private_key', val('config-private-key'));
 
   var fdLlm = new FormData();
-  fdLlm.append('base_url', baseUrl);
-  fdLlm.append('api_key', apiKey);
-  fdLlm.append('model', model);
+  fdLlm.append('base_url', val('llm-base-url'));
+  fdLlm.append('api_key', val('llm-api-key'));
+  fdLlm.append('model', val('llm-model'));
+  fdLlm.append('vision_base_url', val('llm-vision-base-url'));
+  fdLlm.append('vision_api_key', val('llm-vision-api-key'));
+  fdLlm.append('vision_model', val('llm-vision-model'));
 
   Promise.all([
     fetch('./config', { method: 'POST', body: fdConfig }).then(function(r) { return r.json(); }),
@@ -620,11 +662,22 @@ function switchTab(name) {
 }
 
 (function initTabs() {
-  // Default to Settings if the user hasn't fully configured Marina credentials.
-  var defaultTab = {{ ('chat' if is_configured else 'settings') | tojson }};
+  // Default to Settings if either Marina or LLM is not fully configured.
+  // Server-side flags don't tell us whether the LLM is *reachable* -- the
+  // client-side llm-status check below will switch to Settings if the
+  // configured endpoint can't be reached.
+  var marinaReady = {{ ('true' if is_configured else 'false') }};
+  var llmReady = {{ ('true' if llm_configured else 'false') }};
+  var defaultTab = (marinaReady && llmReady) ? 'chat' : 'settings';
   var saved = null;
   try { saved = sessionStorage.getItem('insight_tab'); } catch(e) {}
-  switchTab(saved || defaultTab);
+  // Honor a saved Settings choice always; only honor a saved Chat choice if
+  // the configs look complete (so a half-configured user lands on Settings).
+  var initial;
+  if (saved === 'settings') initial = 'settings';
+  else if (saved === 'chat' && marinaReady && llmReady) initial = 'chat';
+  else initial = defaultTab;
+  switchTab(initial);
 })();
 
 function handleKey(e) {
