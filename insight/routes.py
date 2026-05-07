@@ -28,14 +28,17 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     async def insight_health():
         return JSONResponse({"status": "ok", "service": "insight"})
 
-    @app.get("/", response_class=HTMLResponse, summary="Insight -- AI-powered data exploration")
+    @app.get("/", response_class=HTMLResponse, summary="Insight: AI-powered data exploration")
     async def insight_page(request: Request):
         saved_client_id, saved_key = _credentials.read()
-        return templates.TemplateResponse("insight.html", {
-            "request": request,
-            "saved_client_id": saved_client_id,
-            "is_configured": bool(saved_client_id and saved_key),
-        })
+        return templates.TemplateResponse(
+            request,
+            "insight.html",
+            {
+                "saved_client_id": saved_client_id,
+                "is_configured": bool(saved_client_id and saved_key),
+            },
+        )
 
     @app.get("/llm-status", summary="Test LLM connectivity")
     async def insight_llm_status():
