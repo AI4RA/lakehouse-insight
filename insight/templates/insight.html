@@ -78,10 +78,11 @@
                 {% if is_configured %}<span class="badge-ok" style="font-size:0.65rem;font-weight:500;padding:0.05rem 0.4rem">saved</span>{% endif %}
               </label>
               <textarea id="config-private-key" rows="5"
-                placeholder="{% if is_configured %}(leave blank to keep saved key){% else %}-----BEGIN PRIVATE KEY-----&#10;...{% endif %}"
-                style="width:100%;font-size:0.72rem;font-family:monospace;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem;resize:vertical"></textarea>
+                {% if is_configured %}data-masked="1" onfocus="clearMaskedKey(this)"{% endif %}
+                placeholder="{% if is_configured %}{% else %}-----BEGIN PRIVATE KEY-----&#10;...{% endif %}"
+                style="width:100%;font-size:0.72rem;font-family:monospace;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem;resize:vertical">{% if is_configured %}••••••••••••••••••••••••••••••••••••••••{% endif %}</textarea>
               <div class="text-xs text-slate-400 mt-1">
-                {% if is_configured %}A key is already saved. Leave blank to keep, or paste a new one to replace.{% else %}Paste the private key generated when you created this client.{% endif %}
+                {% if is_configured %}A key is already saved. Click to replace, or leave the dots and save to keep it.{% else %}Paste the private key generated when you created this client.{% endif %}
               </div>
             </div>
           </div>
@@ -660,8 +661,21 @@ function testLlmConnection() {
     });
 }
 
+function clearMaskedKey(el) {
+  if (el && el.dataset.masked === '1') {
+    el.value = '';
+    delete el.dataset.masked;
+  }
+}
+
 function saveAllSettings() {
   function val(id) { return (document.getElementById(id) || {}).value || ''; }
+  function valUnlessMasked(id) {
+    var el = document.getElementById(id);
+    if (!el) return '';
+    if (el.dataset && el.dataset.masked === '1') return '';
+    return el.value || '';
+  }
 
   // Empty fields are allowed: server keeps existing values for whichever
   // fields you leave blank. Both endpoints get hit in parallel.
@@ -669,7 +683,7 @@ function saveAllSettings() {
 
   var fdConfig = new FormData();
   fdConfig.append('client_id', val('config-client-id'));
-  fdConfig.append('private_key', val('config-private-key'));
+  fdConfig.append('private_key', valUnlessMasked('config-private-key'));
 
   var fdLlm = new FormData();
   fdLlm.append('base_url', val('llm-base-url'));
