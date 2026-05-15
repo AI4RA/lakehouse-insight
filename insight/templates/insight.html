@@ -92,12 +92,12 @@
                   style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:0.7rem">refresh</button>
               </label>
               <select id="config-stream-name"
+                data-saved="{{ saved_stream or '' }}"
                 style="width:100%;font-size:0.82rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.375rem">
-                {% if saved_stream %}<option value="{{ saved_stream }}" selected>{{ saved_stream }} (saved)</option>{% endif %}
-                <option value="">-- pick after saving client_id + key --</option>
+                {% if saved_stream %}<option value="{{ saved_stream }}" selected>{{ saved_stream }}</option>{% else %}<option value="">-- save client_id + key first, then refresh --</option>{% endif %}
               </select>
               <div class="text-xs text-slate-400 mt-1">
-                Insight scopes every query to one stream. Pick from the streams configured for this client_id in Shipyard.
+                Insight scopes every query to one stream. Switch streams to compare what Marina exposes under different stream definitions.
               </div>
             </div>
           </div>
@@ -686,7 +686,9 @@ function clearMaskedKey(el) {
 async function loadStreams() {
   var sel = document.getElementById('config-stream-name');
   if (!sel) return;
-  var prior = sel.value || '';
+  // Preserve the saved value over any transient in-flight selection so
+  // the dropdown re-renders with the saved stream still selected.
+  var prior = (sel.dataset && sel.dataset.saved) || sel.value || '';
   sel.innerHTML = '<option value="">loading...</option>';
   try {
     var r = await fetch('./streams');
@@ -708,6 +710,26 @@ async function loadStreams() {
     sel.innerHTML = '<option value="">' + e + '</option>';
   }
 }
+
+// Always try to populate the stream picker on page load. If the server
+// has no credentials saved yet the call fails gracefully and the inline
+// error in the dropdown explains.
+document.addEventListener('DOMContentLoaded', function() { loadStreams(); });
+
+// When the user pastes or types into the private key box, refresh
+// streams: by the time they have a key entered we want the picker
+// to reflect whatever the saved credentials can see.
+(function() {
+  var pem = document.getElementById('config-private-key');
+  if (!pem) return;
+  var debounce = null;
+  function trigger() {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(loadStreams, 400);
+  }
+  pem.addEventListener('input', trigger);
+  pem.addEventListener('paste', function() { setTimeout(trigger, 0); });
+})();
 
 function saveAllSettings() {
   function val(id) { return (document.getElementById(id) || {}).value || ''; }
