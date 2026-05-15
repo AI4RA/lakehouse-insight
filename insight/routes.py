@@ -81,13 +81,35 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         ok, message = _llm.test_connection()
         return JSONResponse({"ok": ok, "message": message})
 
-    @app.get("/streams", summary="List querying streams visible to the configured client")
+    @app.get("/streams", summary="List querying streams visible to the saved credentials")
     async def insight_list_streams():
         client_id, private_key_pem, _ = _credentials.read()
         if not client_id or not private_key_pem:
             return JSONResponse({"error": "Not configured."}, status_code=400)
         try:
             headers = _auth.auth_headers(client_id, private_key_pem)
+            return JSONResponse(_marina.fetch_streams(headers))
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @app.post("/streams/preview",
+              summary="Preview streams using a client_id + private key passed in the form")
+    async def insight_preview_streams(
+        client_id: str = Form(""),
+        private_key: str = Form(""),
+    ):
+        # Used when the settings UI wants to test what a freshly-typed
+        # key can see *before* the user clicks Save. Falls back to
+        # whatever is saved when a field is left blank, so partial
+        # edits (just rotating the key, just changing the client_id)
+        # still work.
+        saved_id, saved_key, _ = _credentials.read()
+        eff_id = (client_id or "").strip() or saved_id
+        eff_key = (private_key or "").strip() or saved_key
+        if not eff_id or not eff_key:
+            return JSONResponse({"error": "client_id and private_key required"}, status_code=400)
+        try:
+            headers = _auth.auth_headers(eff_id, eff_key)
             return JSONResponse(_marina.fetch_streams(headers))
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)

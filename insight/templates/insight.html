@@ -711,24 +711,60 @@ async function loadStreams() {
   }
 }
 
-// Always try to populate the stream picker on page load. If the server
-// has no credentials saved yet the call fails gracefully and the inline
-// error in the dropdown explains.
+// On page load: stream picker uses the SAVED credentials (GET /streams).
+// If nothing is saved yet, the call fails and the dropdown shows the error.
 document.addEventListener('DOMContentLoaded', function() { loadStreams(); });
 
-// When the user pastes or types into the private key box, refresh
-// streams: by the time they have a key entered we want the picker
-// to reflect whatever the saved credentials can see.
+// When the user types or pastes a private key in the settings UI, query
+// Marina with the TYPED key (not the saved one) so they can see which
+// streams the new key has access to before having to click Save.
+async function previewStreamsForTypedKey() {
+  var sel = document.getElementById('config-stream-name');
+  var pemEl = document.getElementById('config-private-key');
+  var idEl = document.getElementById('config-client-id');
+  if (!sel || !pemEl) return;
+  var typedKey = pemEl.value || '';
+  // If the textarea is still in masked-placeholder mode (dots, untouched),
+  // ignore the input event -- nothing actually changed.
+  if (pemEl.dataset && pemEl.dataset.masked === '1') return;
+  if (!typedKey.trim()) return;
+
+  var prior = (sel.dataset && sel.dataset.saved) || sel.value || '';
+  sel.innerHTML = '<option value="">loading (using typed key)...</option>';
+  var fd = new FormData();
+  fd.append('client_id', (idEl && idEl.value) || '');
+  fd.append('private_key', typedKey);
+  try {
+    var r = await fetch('./streams/preview', { method: 'POST', body: fd });
+    var data = await r.json();
+    if (!r.ok) {
+      sel.innerHTML = '<option value="">' + (data.error || 'failed') + '</option>';
+      return;
+    }
+    var streams = (data.querying || []).map(function(s) { return s.stream_name; });
+    if (!streams.length) {
+      sel.innerHTML = '<option value="">(no querying streams for this key)</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">-- choose --</option>'
+      + streams.map(function(s) {
+          return '<option value="' + s + '"' + (s === prior ? ' selected' : '') + '>' + s + '</option>';
+        }).join('');
+  } catch (e) {
+    sel.innerHTML = '<option value="">' + e + '</option>';
+  }
+}
+
 (function() {
   var pem = document.getElementById('config-private-key');
   if (!pem) return;
   var debounce = null;
   function trigger() {
     if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(loadStreams, 400);
+    debounce = setTimeout(previewStreamsForTypedKey, 400);
   }
   pem.addEventListener('input', trigger);
-  pem.addEventListener('paste', function() { setTimeout(trigger, 0); });
+  pem.addEventListener('paste', function() { setTimeout(trigger, 50); });
 })();
 
 function saveAllSettings() {
