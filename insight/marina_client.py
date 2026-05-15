@@ -1,7 +1,10 @@
-"""Thin wrappers over Marina's data path: /query/schema, /query, /files/*.
+"""Thin wrappers over Marina's data path: /streams, /query/schema, /query, /files/*.
 
 All wrappers take an explicit `headers` dict (typically built via
 `insight.auth.auth_headers`) so this module has no auth state of its own.
+
+Every querying call also takes `stream_name`. Marina is per-stream-scoped:
+the client picks which configured stream the request acts against.
 """
 
 import asyncio
@@ -12,9 +15,30 @@ import requests
 MARINA_URL = os.environ.get("MARINA_URL", "http://marina:7010")
 
 
-def fetch_schema(headers: dict) -> dict:
-    """Return the parsed `/query/schema` body. Raises on non-200."""
-    resp = requests.get(f"{MARINA_URL}/query/schema", headers=headers, timeout=30)
+def fetch_streams(headers: dict) -> dict:
+    """GET /streams. Returns {'client_id', 'querying': [...], 'submitting': [...]}."""
+    resp = requests.get(f"{MARINA_URL}/streams", headers=headers, timeout=15)
+    if resp.status_code != 200:
+        detail = ""
+        try:
+            detail = resp.json().get("error", "")
+        except Exception:
+            pass
+        msg = f"Marina /streams returned {resp.status_code}"
+        if detail:
+            msg += f": {detail}"
+        raise RuntimeError(msg)
+    return resp.json()
+
+
+def fetch_schema(headers: dict, stream_name: str) -> dict:
+    """Return the parsed `/query/schema?stream=...` body. Raises on non-200."""
+    resp = requests.get(
+        f"{MARINA_URL}/query/schema",
+        headers=headers,
+        params={"stream": stream_name},
+        timeout=30,
+    )
     if resp.status_code != 200:
         detail = ""
         try:
@@ -28,11 +52,14 @@ def fetch_schema(headers: dict) -> dict:
     return resp.json()
 
 
-def fetch_file_catalog(headers: dict) -> list[dict]:
+def fetch_file_catalog(headers: dict, stream_name: str) -> list[dict]:
     """Best-effort fetch. 403 (no allowed_file_tags) and errors return []."""
     try:
         resp = requests.get(
-            f"{MARINA_URL}/files/catalog", headers=headers, timeout=10
+            f"{MARINA_URL}/files/catalog",
+            headers=headers,
+            params={"stream": stream_name},
+            timeout=10,
         )
         if resp.status_code == 200:
             return resp.json().get("files", [])
@@ -41,12 +68,13 @@ def fetch_file_catalog(headers: dict) -> list[dict]:
     return []
 
 
-async def query(headers: dict, table: str, filters: dict | None, limit: int,
+async def query(headers: dict, stream_name: str, table: str,
+                filters: dict | None, limit: int,
                 offset: int | None = None,
                 group_by: list | None = None,
                 aggregate: list | None = None) -> dict:
-    """POST /query for one table. Returns rows/columns/row_count, plus
-    total_count when Marina provides it."""
+    """POST /query for one table against the named stream. Returns
+    rows/columns/row_count, plus total_count when Marina provides it."""
     table_req: dict = {"table": table, "limit": limit}
     if filters:
         table_req["filters"] = filters
@@ -60,7 +88,7 @@ async def query(headers: dict, table: str, filters: dict | None, limit: int,
         requests.post,
         f"{MARINA_URL}/query",
         headers=headers,
-        json={"tables": [table_req]},
+        json={"stream": stream_name, "tables": [table_req]},
         timeout=30,
     )
     if resp.status_code != 200:
@@ -83,12 +111,13 @@ async def query(headers: dict, table: str, filters: dict | None, limit: int,
     return out
 
 
-def fetch_file_raw(headers: dict, file_hash: str) -> tuple[bytes, str]:
+def fetch_file_raw(headers: dict, stream_name: str,
+                    file_hash: str) -> tuple[bytes, str]:
     """Synchronous fetch of a file's raw bytes + content-type from Marina."""
     resp = requests.get(
         f"{MARINA_URL}/files",
         headers=headers,
-        params={"hash": file_hash},
+        params={"hash": file_hash, "stream": stream_name},
         timeout=30,
         stream=False,
     )
@@ -96,13 +125,14 @@ def fetch_file_raw(headers: dict, file_hash: str) -> tuple[bytes, str]:
     return resp.content, resp.headers.get("content-type", "application/octet-stream")
 
 
-async def fetch_file_text(headers: dict, file_hash: str) -> str:
+async def fetch_file_text(headers: dict, stream_name: str,
+                           file_hash: str) -> str:
     """GET /files for a single file_hash. Refuses non-text content types."""
     resp = await asyncio.to_thread(
         requests.get,
         f"{MARINA_URL}/files",
         headers=headers,
-        params={"hash": file_hash},
+        params={"hash": file_hash, "stream": stream_name},
         timeout=30,
     )
     if resp.status_code != 200:
