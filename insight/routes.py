@@ -31,9 +31,9 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/", response_class=HTMLResponse, summary="Insight: AI-powered data exploration")
     async def insight_page(request: Request):
-        saved_client_id, saved_key = _credentials.read()
+        saved_client_id, saved_key, saved_stream = _credentials.read()
         llm_cfg = _llm_config.read()
-        marina_configured = bool(saved_client_id and saved_key)
+        marina_configured = bool(saved_client_id and saved_key and saved_stream)
         llm_configured = bool(
             llm_cfg.get("base_url", "").strip() and llm_cfg.get("model", "").strip()
         )
@@ -42,7 +42,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             "insight.html",
             {
                 "saved_client_id": saved_client_id,
-                # Marina credentials are set; LLM may or may not be.
+                "saved_stream": saved_stream,
                 "is_configured": marina_configured,
                 "llm_configured": llm_configured,
                 "llm_base_url": llm_cfg.get("base_url", ""),
@@ -63,8 +63,6 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         vision_api_key: str = Form(""),
         vision_model: str = Form(""),
     ):
-        # Empty field = keep the existing value. Lets the user update one
-        # field at a time without retyping the others.
         existing = _llm_config.read()
         merged_base = base_url.strip() or existing.get("base_url", "")
         merged_key = api_key.strip() or existing.get("api_key", "")
@@ -83,40 +81,51 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         ok, message = _llm.test_connection()
         return JSONResponse({"ok": ok, "message": message})
 
-    @app.get("/tables", summary="List tables and files visible to the configured client")
-    async def insight_tables():
-        client_id, private_key_pem = _credentials.read()
+    @app.get("/streams", summary="List querying streams visible to the configured client")
+    async def insight_list_streams():
+        client_id, private_key_pem, _ = _credentials.read()
         if not client_id or not private_key_pem:
             return JSONResponse({"error": "Not configured."}, status_code=400)
         try:
             headers = _auth.auth_headers(client_id, private_key_pem)
-            schema_info = _marina.fetch_schema(headers).get("tables", [])
-            file_catalog = _marina.fetch_file_catalog(headers)
+            return JSONResponse(_marina.fetch_streams(headers))
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @app.get("/tables", summary="List tables and files visible to the configured stream")
+    async def insight_tables():
+        client_id, private_key_pem, stream_name = _credentials.read()
+        if not client_id or not private_key_pem or not stream_name:
+            return JSONResponse({"error": "Not configured."}, status_code=400)
+        try:
+            headers = _auth.auth_headers(client_id, private_key_pem)
+            schema_info = _marina.fetch_schema(headers, stream_name).get("tables", [])
+            file_catalog = _marina.fetch_file_catalog(headers, stream_name)
             return JSONResponse({"tables": schema_info, "files": file_catalog})
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
-    @app.post("/config", summary="Save client_id and private key (partial)")
+    @app.post("/config", summary="Save client_id, private key, and stream (partial)")
     async def insight_config(
         client_id: str = Form(""),
         private_key: str = Form(""),
+        stream_name: str = Form(""),
     ):
-        # Empty field = keep the existing value. Lets the user update one
-        # field at a time without retyping the other.
-        existing_id, existing_key = _credentials.read()
+        existing_id, existing_key, existing_stream = _credentials.read()
         merged_id = client_id.strip() or existing_id
         merged_key = private_key.strip() or existing_key
-        _credentials.write(merged_id, merged_key)
+        merged_stream = stream_name.strip() or existing_stream
+        _credentials.write(merged_id, merged_key, merged_stream)
         return JSONResponse({"ok": True})
 
     @app.get("/preview/{file_hash}", summary="Proxy a file from Marina for preview rendering")
     async def insight_preview(file_hash: str):
-        client_id, private_key_pem = _credentials.read()
-        if not client_id or not private_key_pem:
+        client_id, private_key_pem, stream_name = _credentials.read()
+        if not client_id or not private_key_pem or not stream_name:
             return JSONResponse({"error": "Not configured."}, status_code=400)
         try:
             headers = _auth.auth_headers(client_id, private_key_pem)
-            content, content_type = _marina.fetch_file_raw(headers, file_hash)
+            content, content_type = _marina.fetch_file_raw(headers, stream_name, file_hash)
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=502)
         return Response(content=content, media_type=content_type)
@@ -128,8 +137,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         files: str = Form(None),
         history: str = Form(None),
     ):
-        client_id, private_key_pem = _credentials.read()
-        if not client_id or not private_key_pem:
+        client_id, private_key_pem, stream_name = _credentials.read()
+        if not client_id or not private_key_pem or not stream_name:
             logger.warning("insight/chat 400: insight credentials not configured")
             return JSONResponse({"error": "Insight not configured."}, status_code=400)
         if not _llm.is_configured():
@@ -147,15 +156,12 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             return JSONResponse({"error": f"Marina auth failed: {e}"}, status_code=502)
 
         return StreamingResponse(
-            _stream(question, headers, cached_schema, cached_file_catalog, conversation_history),
+            _stream(question, headers, stream_name,
+                    cached_schema, cached_file_catalog, conversation_history),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _sse(event_type: str, **kwargs) -> str:
     return f"data: {json.dumps({'type': event_type, **kwargs})}\n\n"
@@ -186,33 +192,34 @@ def _parse_history(raw: str | None) -> list[dict]:
     ]
 
 
-async def _stream(question, headers, cached_schema, cached_file_catalog, history):
+async def _stream(question, headers, stream_name,
+                   cached_schema, cached_file_catalog, history):
     if cached_schema is not None:
         schema_info = cached_schema
     else:
         yield _sse("status", text="Loading schema...")
         try:
-            schema_info = _marina.fetch_schema(headers).get("tables", [])
+            schema_info = _marina.fetch_schema(headers, stream_name).get("tables", [])
         except Exception as e:
             yield _sse("error", text=str(e))
             return
         if not schema_info:
-            yield _sse("error", text="No tables configured. Edit the insight querying stream to add allowed tables.")
+            yield _sse("error", text=f"No tables configured on stream '{stream_name}'.")
             return
 
     if cached_file_catalog:
         file_catalog = cached_file_catalog
     else:
-        file_catalog = _marina.fetch_file_catalog(headers)
+        file_catalog = _marina.fetch_file_catalog(headers, stream_name)
 
     async def dispatch_query(table, filters, limit, offset=None, group_by=None, aggregate=None):
         return await _marina.query(
-            headers, table, filters, limit,
+            headers, stream_name, table, filters, limit,
             offset=offset, group_by=group_by, aggregate=aggregate,
         )
 
     async def dispatch_file(file_hash):
-        return await _marina.fetch_file_text(headers, file_hash)
+        return await _marina.fetch_file_text(headers, stream_name, file_hash)
 
     try:
         agent_iter = _llm.insight_agent(
