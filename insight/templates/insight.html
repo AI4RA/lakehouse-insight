@@ -53,6 +53,11 @@
         style="font-size:0.78rem;padding:0.5rem 1rem;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#94a3b8;font-weight:500">
         Settings
       </button>
+      <button id="tab-btn-how" class="tab-btn"
+        onclick="switchTab('how')"
+        style="font-size:0.78rem;padding:0.5rem 1rem;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:#94a3b8;font-weight:500">
+        How It Works
+      </button>
     </div>
 
     <!-- Settings panel: Marina Access + LLM Endpoint in one card -->
@@ -232,37 +237,40 @@
     {% endif %}
     </div><!-- /panel-chat -->
 
+    <!-- How It Works panel -->
+    <div id="panel-how" class="flex flex-col gap-4" style="flex:1;min-height:0;overflow-y:auto;display:none">
+      <div class="card p-5">
+        <h2 class="text-sm font-semibold text-slate-600 mb-3">How It Works</h2>
+        <div class="flex flex-col gap-3">
+          <div>
+            <div class="text-xs font-semibold text-slate-600 mb-0.5">1. Configure a Marina client</div>
+            <div class="text-xs text-slate-400" style="line-height:1.5">
+              Enter the client_id of a querying stream registered with Marina. The
+              chatbot will only see tables that stream allows.
+            </div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold text-slate-600 mb-0.5">2. Provide the private key</div>
+            <div class="text-xs text-slate-400" style="line-height:1.5">
+              Paste the private key generated when you created the client.
+              It is used to mint OAuth bearer tokens against Marina.
+            </div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold text-slate-600 mb-0.5">3. Ask questions</div>
+            <div class="text-xs text-slate-400" style="line-height:1.5">
+              The LLM picks the right table, Marina fetches the data,
+              and the LLM answers in plain English.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /panel-how -->
+
   </div>
 
   <!-- Sidebar -->
   <div class="flex flex-col gap-4" style="height:100%;min-height:0;overflow-y:auto">
-    <div class="card p-5">
-      <h2 class="text-sm font-semibold text-slate-600 mb-3">How It Works</h2>
-      <div class="flex flex-col gap-3">
-        <div>
-          <div class="text-xs font-semibold text-slate-600 mb-0.5">1. Configure a Marina client</div>
-          <div class="text-xs text-slate-400" style="line-height:1.5">
-            Enter the client_id of a querying stream registered with Marina. The
-            chatbot will only see tables that stream allows.
-          </div>
-        </div>
-        <div>
-          <div class="text-xs font-semibold text-slate-600 mb-0.5">2. Provide the private key</div>
-          <div class="text-xs text-slate-400" style="line-height:1.5">
-            Paste the private key generated when you created the client.
-            It is used to mint OAuth bearer tokens against Marina.
-          </div>
-        </div>
-        <div>
-          <div class="text-xs font-semibold text-slate-600 mb-0.5">3. Ask questions</div>
-          <div class="text-xs text-slate-400" style="line-height:1.5">
-            The LLM picks the right table, Marina fetches the data,
-            and the LLM answers in plain English.
-          </div>
-        </div>
-      </div>
-    </div>
-
     {% if is_configured %}
     <!-- Combined History + Resources card with side-by-side tabs -->
     <div class="card p-5" id="side-card" style="flex:1;min-height:240px;display:flex;flex-direction:column;overflow:hidden">
@@ -809,7 +817,7 @@ function saveAllSettings() {
 }
 
 function switchTab(name) {
-  var tabs = ['chat', 'settings'];
+  var tabs = ['chat', 'settings', 'how'];
   tabs.forEach(function(t) {
     var btn = document.getElementById('tab-btn-' + t);
     var panel = document.getElementById('panel-' + t);
@@ -838,6 +846,7 @@ function switchTab(name) {
   // the configs look complete (so a half-configured user lands on Settings).
   var initial;
   if (saved === 'settings') initial = 'settings';
+  else if (saved === 'how') initial = 'how';
   else if (saved === 'chat' && marinaReady && llmReady) initial = 'chat';
   else initial = defaultTab;
   switchTab(initial);
