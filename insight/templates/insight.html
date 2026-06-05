@@ -1287,6 +1287,28 @@ async function submitQuestion() {
 
   try {
     var response = await fetch('./chat', { method: 'POST', body: formData });
+    if (!response.ok) {
+      // Non-SSE error response (typically a JSON body from FastAPI). Without
+      // this branch the SSE reader below would silently drop the body and
+      // leave the thinking dots / stall timer ticking, making it look like
+      // the request hung.
+      var errBody;
+      try { errBody = await response.json(); } catch(e) { errBody = {}; }
+      var errMsg = errBody.error || ('Request failed: HTTP ' + response.status);
+      setStatus('');
+      clearStallTimer();
+      removeThinking();
+      addMessage('assistant', '<div style="color:#dc2626">' + escapeHtml(errMsg) + '</div>');
+      _currentConv.messages.push({
+        role: 'assistant',
+        text: '_(error: ' + errMsg + ')_',
+        results: [],
+        plots: [],
+      });
+      _saveCurrentConv();
+      assistantSaved = true;
+      return;
+    }
     var reader = response.body.getReader();
     _activeReader = reader;
     var decoder = new TextDecoder();
