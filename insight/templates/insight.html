@@ -338,6 +338,10 @@ var _filesCache = null;
 // Multi-conversation localStorage history
 // ---------------------------------------------------------------------------
 var _STORAGE_KEY = 'insight_conversations';
+// sessionStorage survives page reloads within the same tab but not tab close /
+// new tab / new browser session -- exactly the "fresh on cold load, keep on
+// refresh" distinction issue #6 asks for.
+var _SESSION_CONV_KEY = 'insight_current_conv_id';
 var _MAX_CONVS = 20;
 var _allConvs = [];
 
@@ -347,15 +351,29 @@ function _newConv() {
 
 var _currentConv = _newConv();
 
+function _setSessionConvId(id) {
+  try {
+    if (id) sessionStorage.setItem(_SESSION_CONV_KEY, id);
+    else sessionStorage.removeItem(_SESSION_CONV_KEY);
+  } catch(e) {}
+}
+
 function _loadAllConvs() {
   try {
     var raw = localStorage.getItem(_STORAGE_KEY);
     _allConvs = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(_allConvs)) _allConvs = [];
   } catch(e) { _allConvs = []; }
-  // Restore most recent conversation if it has messages
-  if (_allConvs.length) {
-    _currentConv = JSON.parse(JSON.stringify(_allConvs[_allConvs.length - 1]));
+  // Only resume a prior conversation if this is a mid-session reload of one
+  // the user was actively viewing. Cold loads (new tab, new browser session,
+  // shared machine) always start with a fresh chat. Past conversations
+  // remain reachable via the history sidebar.
+  var resumeId = null;
+  try { resumeId = sessionStorage.getItem(_SESSION_CONV_KEY); } catch(e) {}
+  if (resumeId) {
+    var match = _allConvs.find(function(c) { return c.id === resumeId; });
+    if (match) _currentConv = JSON.parse(JSON.stringify(match));
+    else _setSessionConvId(null);  // stale id (deleted from another tab)
   }
 }
 
@@ -372,12 +390,16 @@ function _saveCurrentConv() {
     _allConvs = _allConvs.slice(_allConvs.length - _MAX_CONVS);
   }
   try { localStorage.setItem(_STORAGE_KEY, JSON.stringify(_allConvs)); } catch(e) {}
+  _setSessionConvId(_currentConv.id);
   renderHistorySidebar();
 }
 
 function newChat() {
   _saveCurrentConv(); // preserve current before starting fresh
   _currentConv = _newConv();
+  // Clear the session pointer so a refresh before the first message lands
+  // on an empty chat instead of bouncing back to the previous one.
+  _setSessionConvId(null);
   var container = document.getElementById('chat-messages');
   if (container) {
     container.innerHTML = '<div class="text-center text-xs text-slate-400 py-8">Ask a question about your data.</div>';
@@ -387,6 +409,7 @@ function newChat() {
 
 function loadConversation(conv) {
   _currentConv = JSON.parse(JSON.stringify(conv));
+  _setSessionConvId(_currentConv.id);
   var container = document.getElementById('chat-messages');
   if (container) container.innerHTML = '';
   _currentConv.messages.forEach(function(msg) {
@@ -430,6 +453,16 @@ function deleteConv(id, event) {
   event.stopPropagation();
   _allConvs = _allConvs.filter(function(c) { return c.id !== id; });
   try { localStorage.setItem(_STORAGE_KEY, JSON.stringify(_allConvs)); } catch(e) {}
+  // If the deleted conv was the one this tab was viewing, drop the session
+  // pointer so a refresh doesn't try to resume a now-missing conversation.
+  if (_currentConv.id === id) {
+    _setSessionConvId(null);
+    _currentConv = _newConv();
+    var container = document.getElementById('chat-messages');
+    if (container) {
+      container.innerHTML = '<div class="text-center text-xs text-slate-400 py-8">Ask a question about your data.</div>';
+    }
+  }
   renderHistorySidebar();
 }
 
