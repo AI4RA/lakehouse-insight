@@ -31,9 +31,14 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/", response_class=HTMLResponse, summary="Insight: AI-powered data exploration")
     async def insight_page(request: Request):
-        saved_client_id, saved_key, saved_stream = _credentials.read()
+        saved_client_id, saved_key, saved_stream, saved_transport = _credentials.read()
         llm_cfg = _llm_config.read()
-        marina_configured = bool(saved_client_id and saved_key and saved_stream)
+        # SQL transport scopes by client_id (no stream concept), so stream_name
+        # is only required when transport is REST.
+        if saved_transport == "sql":
+            marina_configured = bool(saved_client_id and saved_key)
+        else:
+            marina_configured = bool(saved_client_id and saved_key and saved_stream)
         llm_configured = bool(
             llm_cfg.get("base_url", "").strip() and llm_cfg.get("model", "").strip()
         )
@@ -43,6 +48,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             {
                 "saved_client_id": saved_client_id,
                 "saved_stream": saved_stream,
+                "saved_transport": saved_transport,
                 "is_configured": marina_configured,
                 "llm_configured": llm_configured,
                 "llm_base_url": llm_cfg.get("base_url", ""),
@@ -83,7 +89,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/streams", summary="List querying streams visible to the saved credentials")
     async def insight_list_streams():
-        client_id, private_key_pem, _ = _credentials.read()
+        client_id, private_key_pem, _, _ = _credentials.read()
         if not client_id or not private_key_pem:
             return JSONResponse({"error": "Not configured."}, status_code=400)
         try:
@@ -103,7 +109,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         # whatever is saved when a field is left blank, so partial
         # edits (just rotating the key, just changing the client_id)
         # still work.
-        saved_id, saved_key, _ = _credentials.read()
+        saved_id, saved_key, _, _ = _credentials.read()
         eff_id = (client_id or "").strip() or saved_id
         eff_key = (private_key or "").strip() or saved_key
         if not eff_id or not eff_key:
@@ -116,7 +122,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/tables", summary="List tables and files visible to the configured stream")
     async def insight_tables():
-        client_id, private_key_pem, stream_name = _credentials.read()
+        client_id, private_key_pem, stream_name, transport = _credentials.read()
+        if transport == "sql":
+            # /tables hits Marina's REST /query/schema, which is stream-scoped.
+            # SQL transport's schema discovery (slice 3) will go elsewhere.
+            return JSONResponse({"tables": [], "files": []})
         if not client_id or not private_key_pem or not stream_name:
             return JSONResponse({"error": "Not configured."}, status_code=400)
         try:
@@ -127,22 +137,24 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
-    @app.post("/config", summary="Save client_id, private key, and stream (partial)")
+    @app.post("/config", summary="Save client_id, private key, stream, and transport (partial)")
     async def insight_config(
         client_id: str = Form(""),
         private_key: str = Form(""),
         stream_name: str = Form(""),
+        transport: str = Form(""),
     ):
-        existing_id, existing_key, existing_stream = _credentials.read()
+        existing_id, existing_key, existing_stream, existing_transport = _credentials.read()
         merged_id = client_id.strip() or existing_id
         merged_key = private_key.strip() or existing_key
         merged_stream = stream_name.strip() or existing_stream
-        _credentials.write(merged_id, merged_key, merged_stream)
+        merged_transport = transport.strip() if transport.strip() in ("rest", "sql") else existing_transport
+        _credentials.write(merged_id, merged_key, merged_stream, merged_transport)
         return JSONResponse({"ok": True})
 
     @app.get("/preview/{file_hash}", summary="Proxy a file from Marina for preview rendering")
     async def insight_preview(file_hash: str):
-        client_id, private_key_pem, stream_name = _credentials.read()
+        client_id, private_key_pem, stream_name, _ = _credentials.read()
         if not client_id or not private_key_pem or not stream_name:
             return JSONResponse({"error": "Not configured."}, status_code=400)
         try:
@@ -159,7 +171,17 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         files: str = Form(None),
         history: str = Form(None),
     ):
-        client_id, private_key_pem, stream_name = _credentials.read()
+        client_id, private_key_pem, stream_name, transport = _credentials.read()
+        if transport == "sql":
+            # Slice 4 of the SQL-transport rollout will wire the run_sql tool
+            # into the agent; until then SQL mode is config-only and chat is
+            # gated with a clear message rather than a confusing failure.
+            logger.warning("insight/chat 400: SQL transport selected but not yet wired up")
+            return JSONResponse(
+                {"error": "SQL transport is selected in Settings but the agent isn't wired up to it yet. "
+                          "Switch transport back to REST to chat."},
+                status_code=400,
+            )
         if not client_id or not private_key_pem or not stream_name:
             logger.warning("insight/chat 400: insight credentials not configured")
             return JSONResponse({"error": "Insight not configured."}, status_code=400)

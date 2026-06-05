@@ -70,6 +70,27 @@
           <h3 class="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-3">Marina Access</h3>
           <div class="flex flex-col gap-3">
             <div>
+              <label class="text-xs text-slate-500 font-medium block mb-1">Transport</label>
+              <div style="display:flex;gap:1.2rem">
+                <label style="font-size:0.82rem;display:flex;align-items:center;gap:0.35rem;cursor:pointer">
+                  <input type="radio" name="transport" value="rest"
+                    {% if saved_transport != 'sql' %}checked{% endif %}
+                    onchange="updateTransportUI()">
+                  REST
+                </label>
+                <label style="font-size:0.82rem;display:flex;align-items:center;gap:0.35rem;cursor:pointer">
+                  <input type="radio" name="transport" value="sql"
+                    {% if saved_transport == 'sql' %}checked{% endif %}
+                    onchange="updateTransportUI()">
+                  SQL <span style="font-size:0.65rem;color:#a16207;background:#fef9c3;border-radius:0.25rem;padding:0 0.3rem">experimental</span>
+                </label>
+              </div>
+              <div class="text-xs text-slate-400 mt-1">
+                REST: Marina's structured /query endpoint, scoped per querying stream.
+                SQL: Marina's Trino-style SQL gateway, scoped by client_id. SQL is still being wired into the agent.
+              </div>
+            </div>
+            <div>
               <label class="text-xs text-slate-500 font-medium block mb-1">Client ID</label>
               <input type="text" id="config-client-id"
                 placeholder="e.g. insight"
@@ -90,7 +111,7 @@
                 {% if is_configured %}A key is already saved. Click to replace, or leave the dots and save to keep it.{% else %}Paste the private key generated when you created this client.{% endif %}
               </div>
             </div>
-            <div>
+            <div id="stream-selector-wrap">
               <label class="text-xs text-slate-500 font-medium block mb-1" style="display:flex;align-items:center;gap:0.4rem">
                 Querying Stream
                 <button type="button" onclick="loadStreams()" class="text-xs"
@@ -789,9 +810,21 @@ async function loadStreams() {
   }
 }
 
+function updateTransportUI() {
+  // Hide the stream selector when SQL transport is active -- the SQL surface
+  // is client_id-scoped (lakehouse."client_{id}"), there's no stream concept
+  // to bind a selector to.
+  var sqlChecked = !!document.querySelector('input[name="transport"][value="sql"]:checked');
+  var streamWrap = document.getElementById('stream-selector-wrap');
+  if (streamWrap) streamWrap.style.display = sqlChecked ? 'none' : '';
+}
+
 // On page load: stream picker uses the SAVED credentials (GET /streams).
 // If nothing is saved yet, the call fails and the dropdown shows the error.
-document.addEventListener('DOMContentLoaded', function() { loadStreams(); });
+document.addEventListener('DOMContentLoaded', function() {
+  updateTransportUI();
+  loadStreams();
+});
 
 // When the user types or pastes a private key in the settings UI, query
 // Marina with the TYPED key (not the saved one) so they can see which
@@ -862,6 +895,8 @@ function saveAllSettings() {
   fdConfig.append('client_id', val('config-client-id'));
   fdConfig.append('private_key', valUnlessMasked('config-private-key'));
   fdConfig.append('stream_name', val('config-stream-name'));
+  var selectedTransport = (document.querySelector('input[name="transport"]:checked') || {}).value || 'rest';
+  fdConfig.append('transport', selectedTransport);
 
   var fdLlm = new FormData();
   fdLlm.append('base_url', val('llm-base-url'));
