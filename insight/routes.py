@@ -18,6 +18,7 @@ from . import credentials as _credentials
 from . import llm as _llm
 from . import llm_config as _llm_config
 from . import marina_client as _marina
+from . import marina_sql as _marina_sql
 
 logger = logging.getLogger(__name__)
 
@@ -120,13 +121,19 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
-    @app.get("/tables", summary="List tables and files visible to the configured stream")
+    @app.get("/tables", summary="List tables visible to the configured Marina client (transport-aware)")
     async def insight_tables():
         client_id, private_key_pem, stream_name, transport = _credentials.read()
         if transport == "sql":
-            # /tables hits Marina's REST /query/schema, which is stream-scoped.
-            # SQL transport's schema discovery (slice 3) will go elsewhere.
-            return JSONResponse({"tables": [], "files": []})
+            if not client_id or not private_key_pem:
+                return JSONResponse({"error": "Not configured."}, status_code=400)
+            try:
+                sql_headers = _marina_sql.auth_headers_sql(client_id, private_key_pem)
+                tables = await _marina_sql.discover_schema(sql_headers, client_id)
+                # File catalog is REST-only; SQL clients have no equivalent.
+                return JSONResponse({"tables": tables, "files": []})
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
         if not client_id or not private_key_pem or not stream_name:
             return JSONResponse({"error": "Not configured."}, status_code=400)
         try:
@@ -173,18 +180,13 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     ):
         client_id, private_key_pem, stream_name, transport = _credentials.read()
         if transport == "sql":
-            # Slice 4 of the SQL-transport rollout will wire the run_sql tool
-            # into the agent; until then SQL mode is config-only and chat is
-            # gated with a clear message rather than a confusing failure.
-            logger.warning("insight/chat 400: SQL transport selected but not yet wired up")
-            return JSONResponse(
-                {"error": "SQL transport is selected in Settings but the agent isn't wired up to it yet. "
-                          "Switch transport back to REST to chat."},
-                status_code=400,
-            )
-        if not client_id or not private_key_pem or not stream_name:
-            logger.warning("insight/chat 400: insight credentials not configured")
-            return JSONResponse({"error": "Insight not configured."}, status_code=400)
+            if not client_id or not private_key_pem:
+                logger.warning("insight/chat 400: SQL transport but no client_id/key")
+                return JSONResponse({"error": "Insight not configured."}, status_code=400)
+        else:
+            if not client_id or not private_key_pem or not stream_name:
+                logger.warning("insight/chat 400: insight credentials not configured")
+                return JSONResponse({"error": "Insight not configured."}, status_code=400)
         if not _llm.is_configured():
             logger.warning("insight/chat 400: LLM not configured")
             return JSONResponse({"error": "LLM not configured."}, status_code=400)
@@ -194,13 +196,16 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         conversation_history = _parse_history(history)
 
         try:
-            headers = _auth.auth_headers(client_id, private_key_pem)
+            if transport == "sql":
+                headers = _marina_sql.auth_headers_sql(client_id, private_key_pem)
+            else:
+                headers = _auth.auth_headers(client_id, private_key_pem)
         except Exception as e:
             logger.warning("insight/chat 502: token exchange failed: %s", e)
             return JSONResponse({"error": f"Marina auth failed: {e}"}, status_code=502)
 
         return StreamingResponse(
-            _stream(question, headers, stream_name,
+            _stream(question, headers, stream_name, transport, client_id,
                     cached_schema, cached_file_catalog, conversation_history),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
@@ -236,39 +241,63 @@ def _parse_history(raw: str | None) -> list[dict]:
     ]
 
 
-async def _stream(question, headers, stream_name,
+async def _stream(question, headers, stream_name, transport, client_id,
                    cached_schema, cached_file_catalog, history):
+    sql_mode = transport == "sql"
+
     if cached_schema is not None:
         schema_info = cached_schema
     else:
         yield _sse("status", text="Loading schema...")
         try:
-            schema_info = _marina.fetch_schema(headers, stream_name).get("tables", [])
+            if sql_mode:
+                schema_info = await _marina_sql.discover_schema(headers, client_id)
+            else:
+                schema_info = _marina.fetch_schema(headers, stream_name).get("tables", [])
         except Exception as e:
             yield _sse("error", text=str(e))
             return
         if not schema_info:
-            yield _sse("error", text=f"No tables configured on stream '{stream_name}'.")
+            if sql_mode:
+                yield _sse("error", text=f"No tables visible to client_id '{client_id}'.")
+            else:
+                yield _sse("error", text=f"No tables configured on stream '{stream_name}'.")
             return
 
-    if cached_file_catalog:
+    if sql_mode:
+        # SQL gateway has no file catalog; the read_document / preview_file
+        # tools aren't in the SQL tool surface.
+        file_catalog: list = []
+    elif cached_file_catalog:
         file_catalog = cached_file_catalog
     else:
         file_catalog = _marina.fetch_file_catalog(headers, stream_name)
 
-    async def dispatch_query(table, filters, limit, offset=None, group_by=None, aggregate=None):
-        return await _marina.query(
-            headers, stream_name, table, filters, limit,
-            offset=offset, group_by=group_by, aggregate=aggregate,
-        )
-
-    async def dispatch_file(file_hash):
-        return await _marina.fetch_file_text(headers, stream_name, file_hash)
+    if sql_mode:
+        async def dispatch_sql(sql):
+            return await _marina_sql.run_sql(headers, sql)
+        agent_kwargs = {
+            "dispatch_sql": dispatch_sql,
+            "transport": "sql",
+            "client_id": client_id,
+        }
+    else:
+        async def dispatch_query(table, filters, limit, offset=None, group_by=None, aggregate=None):
+            return await _marina.query(
+                headers, stream_name, table, filters, limit,
+                offset=offset, group_by=group_by, aggregate=aggregate,
+            )
+        async def dispatch_file(file_hash):
+            return await _marina.fetch_file_text(headers, stream_name, file_hash)
+        agent_kwargs = {
+            "dispatch_query": dispatch_query,
+            "dispatch_file": dispatch_file,
+        }
 
     try:
         agent_iter = _llm.insight_agent(
             question, schema_info, file_catalog, history or None,
-            dispatch_query, dispatch_file,
+            **agent_kwargs,
         ).__aiter__()
         pending_next: asyncio.Task | None = None
         while True:

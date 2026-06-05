@@ -572,6 +572,24 @@ function appendQueryPanel(bubbleEl, query) {
   bubbleEl.appendChild(details);
 }
 
+function appendSqlPanel(bubbleEl, sql) {
+  if (!sql) return;
+  var details = document.createElement('details');
+  details.style.cssText = 'margin-top:0.4rem;font-size:0.72rem';
+  // Open by default in SQL mode -- showing the model's SQL is the whole
+  // point of the teaching surface, and SQL is usually short enough to fit.
+  details.open = true;
+  var summary = document.createElement('summary');
+  summary.style.cssText = 'cursor:pointer;color:#64748b;user-select:none;padding:0.1rem 0';
+  summary.textContent = 'SQL';
+  var pre = document.createElement('pre');
+  pre.style.cssText = 'background:#0f172a;color:#e2e8f0;border-radius:0.25rem;padding:0.6rem 0.75rem;margin:0.25rem 0 0;font-size:0.72rem;overflow-x:auto;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.45';
+  pre.textContent = sql;
+  details.appendChild(summary);
+  details.appendChild(pre);
+  bubbleEl.appendChild(details);
+}
+
 function appendResults(bubbleEl, results) {
   if (!results || !results.length) return;
   var totalRows = results.reduce(function(s, r) { return s + (r.row_count || 0); }, 0);
@@ -583,7 +601,11 @@ function appendResults(bubbleEl, results) {
   meta.innerHTML = 'Queried ' + tableList + ' &mdash; ' + totalRows + ' row' + (totalRows !== 1 ? 's' : '') + ' total';
   bubbleEl.appendChild(meta);
   results.forEach(function(r) {
-    appendQueryPanel(bubbleEl, r.query);
+    if (r.sql) {
+      appendSqlPanel(bubbleEl, r.sql);
+    } else {
+      appendQueryPanel(bubbleEl, r.query);
+    }
     if (r.error) {
       var errEl = document.createElement('div');
       errEl.style.cssText = 'color:#dc2626;font-size:0.72rem;margin:0.25rem 0 0.5rem';
