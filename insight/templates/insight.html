@@ -489,6 +489,35 @@ function renderHistorySidebar() {
   list.innerHTML = rows + toggle;
 }
 
+function _compactQuery(q) {
+  // Drop null/undefined and empty containers so the rendered JSON only
+  // shows fields the model actually set.
+  var out = {};
+  Object.keys(q).forEach(function(k) {
+    var v = q[k];
+    if (v === null || v === undefined) return;
+    if (Array.isArray(v) && v.length === 0) return;
+    if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) return;
+    out[k] = v;
+  });
+  return out;
+}
+
+function appendQueryPanel(bubbleEl, query) {
+  if (!query) return;
+  var details = document.createElement('details');
+  details.style.cssText = 'margin-top:0.4rem;font-size:0.72rem';
+  var summary = document.createElement('summary');
+  summary.style.cssText = 'cursor:pointer;color:#64748b;user-select:none;padding:0.1rem 0';
+  summary.textContent = 'Query: ' + (query.table || '?');
+  var pre = document.createElement('pre');
+  pre.style.cssText = 'background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.25rem;padding:0.5rem;margin:0.25rem 0 0;font-size:0.7rem;overflow-x:auto;white-space:pre-wrap;color:#334155';
+  pre.textContent = JSON.stringify(_compactQuery(query), null, 2);
+  details.appendChild(summary);
+  details.appendChild(pre);
+  bubbleEl.appendChild(details);
+}
+
 function appendResults(bubbleEl, results) {
   if (!results || !results.length) return;
   var totalRows = results.reduce(function(s, r) { return s + (r.row_count || 0); }, 0);
@@ -500,6 +529,14 @@ function appendResults(bubbleEl, results) {
   meta.innerHTML = 'Queried ' + tableList + ' &mdash; ' + totalRows + ' row' + (totalRows !== 1 ? 's' : '') + ' total';
   bubbleEl.appendChild(meta);
   results.forEach(function(r) {
+    appendQueryPanel(bubbleEl, r.query);
+    if (r.error) {
+      var errEl = document.createElement('div');
+      errEl.style.cssText = 'color:#dc2626;font-size:0.72rem;margin:0.25rem 0 0.5rem';
+      errEl.textContent = 'Query failed: ' + r.error;
+      bubbleEl.appendChild(errEl);
+      return;
+    }
     if (!r.columns || !r.columns.length || !r.rows || !r.rows.length) return;
     var toggleId = 'data-' + r.table + '-' + Date.now() + '-' + Math.random().toString(36).slice(2);
     var toggleWrap = document.createElement('div');

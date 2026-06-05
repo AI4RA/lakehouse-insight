@@ -449,6 +449,17 @@ async def insight_agent(
                 offset = int(args.get("offset") or 0) or None
                 group_by = args.get("group_by") or None
                 aggregate = args.get("aggregate") or None
+                # Surfaced to the UI so the user can sanity-check what the
+                # model actually asked Marina for. Stored alongside the result
+                # so it survives history reload.
+                query_spec = {
+                    "table": table,
+                    "filters": filters,
+                    "limit": limit,
+                    "offset": offset,
+                    "group_by": group_by,
+                    "aggregate": aggregate,
+                }
                 yield ("status", f"Querying {table}...")
                 try:
                     result = await dispatch_query(
@@ -459,6 +470,7 @@ async def insight_agent(
                     table_results = [r for r in table_results if r["table"] != table]
                     table_results.append({
                         "table": table,
+                        "query": query_spec,
                         "rows": result.get("rows", [])[:20],
                         "columns": result.get("columns", []),
                         "row_count": result.get("row_count", 0),
@@ -471,6 +483,15 @@ async def insight_agent(
                         "note": f"Showing {len(sample)} of {result.get('row_count', 0)} rows",
                     })
                 except Exception as e:
+                    table_results = [r for r in table_results if r["table"] != table]
+                    table_results.append({
+                        "table": table,
+                        "query": query_spec,
+                        "error": str(e),
+                        "rows": [],
+                        "columns": [],
+                        "row_count": 0,
+                    })
                     tool_content = json.dumps({"error": str(e)})
 
             elif name == "create_plot":
