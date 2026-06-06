@@ -315,6 +315,8 @@ async def _stream(question, headers, stream_name, transport, client_id,
                 pending_next = None
             if event_type == "status":
                 yield _sse("status", text=data)
+            elif event_type == "thinking":
+                yield _sse("thinking", text=data)
             elif event_type == "token":
                 yield _sse("token", text=data)
             elif event_type == "plot":

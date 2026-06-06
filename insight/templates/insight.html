@@ -462,6 +462,9 @@ function loadConversation(conv) {
         }
       });
       appendResults(bubbleEl, msg.results || []);
+      if (msg.thinking) {
+        attachThinkingToggle(bubbleEl, msg.thinking);
+      }
       wrap.appendChild(bubbleEl);
       container.appendChild(wrap);
     }
@@ -590,6 +593,42 @@ function appendInteractionPanel(bubbleEl, interaction, opts) {
   details.appendChild(summary);
   details.appendChild(pre);
   bubbleEl.appendChild(details);
+}
+
+// Click anywhere on the assistant bubble (or the thinking-dots box) to
+// reveal the model's reasoning; click again to hide. The reasoning lives in
+// a hidden <pre> attached to the container; the container itself owns the
+// click handler. We skip the toggle when the click lands on an interactive
+// descendant (existing <details> panels, links, buttons, the reasoning <pre>
+// itself), so the SQL/REST disclosures and Show/Hide-table buttons still
+// behave as before.
+function attachThinkingToggle(bubbleEl, text) {
+  if (!bubbleEl || !text) return null;
+  var pre = bubbleEl.querySelector('.thinking-toggle-pre');
+  if (pre) {
+    pre.textContent = text;
+  } else {
+    pre = document.createElement('pre');
+    pre.className = 'thinking-toggle-pre';
+    pre.style.cssText = 'display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.25rem;padding:0.5rem;margin:0.5rem 0 0;font-size:0.7rem;overflow:auto;max-height:300px;white-space:pre-wrap;color:#475569;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.45;cursor:text';
+    pre.textContent = text;
+    bubbleEl.appendChild(pre);
+  }
+  if (!bubbleEl.dataset.thinkingWired) {
+    bubbleEl.dataset.thinkingWired = '1';
+    bubbleEl.style.cursor = 'pointer';
+    bubbleEl.title = 'click to toggle the model\'s reasoning';
+    bubbleEl.addEventListener('click', function(e) {
+      if (
+        e.target.closest('a, button, input, select, textarea, summary, details') ||
+        e.target.closest('.thinking-toggle-pre')
+      ) return;
+      var t = bubbleEl.querySelector('.thinking-toggle-pre');
+      if (!t) return;
+      t.style.display = (t.style.display === 'none' ? 'block' : 'none');
+    });
+  }
+  return pre;
 }
 
 function appendResults(bubbleEl, results) {
@@ -1253,6 +1292,8 @@ async function submitQuestion() {
   var bubbleEl = null;   // the outer bubble element
   var pendingPlots = []; // plot specs accumulated during this response
   var assistantSaved = false; // set true when 'done' fires; falls back to finally otherwise
+  var thinkingText = ''; // reasoning_content accumulated from a thinking model
+  var liveThinkingPre = null; // <pre> currently displaying live reasoning (in dots, then in bubble)
 
   // Show thinking indicator
   var thinkingEl = document.createElement('div');
@@ -1266,6 +1307,10 @@ async function submitQuestion() {
   function removeThinking() {
     var el = document.getElementById('thinking-indicator');
     if (el) el.remove();
+    // Once the dots disappear, any live <pre> attached to them is gone too.
+    if (liveThinkingPre && liveThinkingPre.closest && liveThinkingPre.closest('#thinking-indicator')) {
+      liveThinkingPre = null;
+    }
   }
 
   // Stall detection: show elapsed time after 5s of no content
@@ -1334,6 +1379,23 @@ async function submitQuestion() {
         } else if (data.type === 'status') {
           setStatus(data.text);
 
+        } else if (data.type === 'thinking') {
+          if (data.text) {
+            thinkingText += data.text;
+            // Stream into whichever container is currently visible: the
+            // dots-indicator box while it's up, then the assistant bubble
+            // once tokens have started arriving. attachThinkingToggle is
+            // idempotent -- subsequent calls just update the <pre>'s text.
+            var dotsInner = null;
+            var ind = document.getElementById('thinking-indicator');
+            if (ind) dotsInner = ind.querySelector('div');
+            var target = dotsInner || bubbleEl;
+            if (target) {
+              liveThinkingPre = attachThinkingToggle(target, thinkingText);
+              if (liveThinkingPre) liveThinkingPre.scrollTop = liveThinkingPre.scrollHeight;
+            }
+          }
+
         } else if (data.type === 'token') {
           setStatus('');
           clearStallTimer();
@@ -1352,6 +1414,14 @@ async function submitQuestion() {
             bubbleEl.appendChild(answerEl);
             wrap.appendChild(bubbleEl);
             if (container) { container.appendChild(wrap); container.scrollTop = container.scrollHeight; }
+            // If reasoning arrived before the visible answer (the common
+            // case for thinking models), wire the click-to-reveal toggle on
+            // the brand-new bubble now. Subsequent thinking deltas (rare
+            // once tokens start) keep the <pre> in sync via the SSE
+            // 'thinking' handler.
+            if (thinkingText) {
+              liveThinkingPre = attachThinkingToggle(bubbleEl, thinkingText);
+            }
           }
           answerText += data.text;
           answerEl.innerHTML = renderMarkdown(answerText);
@@ -1390,7 +1460,13 @@ async function submitQuestion() {
           clearStallTimer();
           removeThinking();
           if (bubbleEl) appendResults(bubbleEl, data.results);
-          _currentConv.messages.push({ role: 'assistant', text: answerText, results: data.results || [], plots: pendingPlots });
+          _currentConv.messages.push({
+            role: 'assistant',
+            text: answerText,
+            thinking: thinkingText,
+            results: data.results || [],
+            plots: pendingPlots,
+          });
           _saveCurrentConv();
           assistantSaved = true;
 
@@ -1404,6 +1480,7 @@ async function submitQuestion() {
           _currentConv.messages.push({
             role: 'assistant',
             text: answerText ? answerText + '\n\n' + errText : errText,
+            thinking: thinkingText,
             results: [],
             plots: pendingPlots,
           });
@@ -1427,6 +1504,7 @@ async function submitQuestion() {
       _currentConv.messages.push({
         role: 'assistant',
         text: answerText,
+        thinking: thinkingText,
         results: [],
         plots: pendingPlots,
       });
