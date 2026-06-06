@@ -34,12 +34,10 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     async def insight_page(request: Request):
         saved_client_id, saved_key, saved_stream, saved_transport = _credentials.read()
         llm_cfg = _llm_config.read()
-        # SQL transport scopes by client_id (no stream concept), so stream_name
-        # is only required when transport is REST.
-        if saved_transport == "sql":
-            marina_configured = bool(saved_client_id and saved_key)
-        else:
-            marina_configured = bool(saved_client_id and saved_key and saved_stream)
+        # Post ui-insight/lakehouse#276 the SQL surface is also stream-scoped
+        # (schema = `lakehouse."client_<id>__<stream>"`), so stream_name is
+        # required on both transports.
+        marina_configured = bool(saved_client_id and saved_key and saved_stream)
         llm_configured = bool(
             llm_cfg.get("base_url", "").strip() and llm_cfg.get("model", "").strip()
         )
@@ -125,11 +123,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     async def insight_tables():
         client_id, private_key_pem, stream_name, transport = _credentials.read()
         if transport == "sql":
-            if not client_id or not private_key_pem:
+            if not client_id or not private_key_pem or not stream_name:
                 return JSONResponse({"error": "Not configured."}, status_code=400)
             try:
                 sql_headers = _marina_sql.auth_headers_sql(client_id, private_key_pem)
-                tables = await _marina_sql.discover_schema(sql_headers, client_id)
+                tables = await _marina_sql.discover_schema(sql_headers, client_id, stream_name)
                 # File catalog is REST-only; SQL clients have no equivalent.
                 return JSONResponse({"tables": tables, "files": []})
             except Exception as e:
@@ -179,14 +177,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         history: str = Form(None),
     ):
         client_id, private_key_pem, stream_name, transport = _credentials.read()
-        if transport == "sql":
-            if not client_id or not private_key_pem:
-                logger.warning("insight/chat 400: SQL transport but no client_id/key")
-                return JSONResponse({"error": "Insight not configured."}, status_code=400)
-        else:
-            if not client_id or not private_key_pem or not stream_name:
-                logger.warning("insight/chat 400: insight credentials not configured")
-                return JSONResponse({"error": "Insight not configured."}, status_code=400)
+        # Both transports now require stream_name -- SQL went per-stream in
+        # ui-insight/lakehouse#276.
+        if not client_id or not private_key_pem or not stream_name:
+            logger.warning("insight/chat 400: insight credentials not configured (need client_id, key, and stream)")
+            return JSONResponse({"error": "Insight not configured."}, status_code=400)
         if not _llm.is_configured():
             logger.warning("insight/chat 400: LLM not configured")
             return JSONResponse({"error": "LLM not configured."}, status_code=400)
@@ -251,17 +246,14 @@ async def _stream(question, headers, stream_name, transport, client_id,
         yield _sse("status", text="Loading schema...")
         try:
             if sql_mode:
-                schema_info = await _marina_sql.discover_schema(headers, client_id)
+                schema_info = await _marina_sql.discover_schema(headers, client_id, stream_name)
             else:
                 schema_info = _marina.fetch_schema(headers, stream_name).get("tables", [])
         except Exception as e:
             yield _sse("error", text=str(e))
             return
         if not schema_info:
-            if sql_mode:
-                yield _sse("error", text=f"No tables visible to client_id '{client_id}'.")
-            else:
-                yield _sse("error", text=f"No tables configured on stream '{stream_name}'.")
+            yield _sse("error", text=f"No tables configured on stream '{stream_name}'.")
             return
 
     if sql_mode:
@@ -280,6 +272,7 @@ async def _stream(question, headers, stream_name, transport, client_id,
             "dispatch_sql": dispatch_sql,
             "transport": "sql",
             "client_id": client_id,
+            "stream_name": stream_name,
         }
     else:
         async def dispatch_query(table, filters, limit, offset=None, group_by=None, aggregate=None):
