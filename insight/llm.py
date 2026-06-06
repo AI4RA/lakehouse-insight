@@ -412,12 +412,13 @@ async def insight_agent(
     """Agentic tool-calling loop for insight chat.
 
     Yields (event_type, data) tuples:
-      ("status", str)   -- progress message shown in UI
-      ("token",  str)   -- LLM text token(s) to stream
-      ("plot",   dict)  -- Plotly spec + row data for frontend rendering
-      ("preview", dict) -- file preview metadata for UI modal
-      ("done",   list)  -- list of table_results on completion
-      ("error",  str)   -- fatal error message
+      ("status",   str)  -- progress message shown in UI
+      ("thinking", str)  -- reasoning_content chunk from a thinking model
+      ("token",    str)  -- LLM text token(s) to stream
+      ("plot",     dict) -- Plotly spec + row data for frontend rendering
+      ("preview",  dict) -- file preview metadata for UI modal
+      ("done",     list) -- list of table_results on completion
+      ("error",    str)  -- fatal error message
 
     `transport` selects the tool surface: "rest" exposes query_table +
     create_plot + read_document + preview_file; "sql" exposes run_sql +
@@ -489,6 +490,23 @@ async def insight_agent(
                     if choice.finish_reason:
                         finish_reason = choice.finish_reason
                     delta = choice.delta
+                    # Reasoning/thinking content -- emitted by models that
+                    # separate their internal chain-of-thought from the final
+                    # answer (DeepSeek-R1's `reasoning_content`, providers
+                    # that pass an OpenAI-style `reasoning` field, etc.).
+                    # We forward it as its own event so the UI can offer a
+                    # click-to-peek panel without the reasoning ever mixing
+                    # into the visible answer.
+                    reasoning_text = (
+                        getattr(delta, "reasoning_content", None)
+                        or getattr(delta, "reasoning", None)
+                    )
+                    if reasoning_text:
+                        # Treat reasoning as "we got something" for retry
+                        # logic -- replaying the stream would double-emit it.
+                        any_output = True
+                        emitted_in_attempt = True
+                        yield ("thinking", reasoning_text)
                     if delta.content:
                         content_chunks.append(delta.content)
                         # Speculatively stream content when no tool calls are accumulating.
