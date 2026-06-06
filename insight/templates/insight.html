@@ -87,7 +87,9 @@
               </div>
               <div class="text-xs text-slate-400 mt-1">
                 REST: Marina's structured /query endpoint, scoped per querying stream.
-                SQL: Marina's Trino-style SQL gateway, scoped by client_id. SQL is still being wired into the agent.
+                SQL: Marina's Trino-style SQL gateway, also scoped per stream
+                (schema = <code>lakehouse."client_&lt;id&gt;__&lt;stream&gt;"</code>).
+                Pick a stream below either way.
               </div>
             </div>
             <div>
@@ -462,6 +464,9 @@ function loadConversation(conv) {
         }
       });
       appendResults(bubbleEl, msg.results || []);
+      if (msg.thinking) {
+        attachThinkingToggle(bubbleEl, msg.thinking);
+      }
       wrap.appendChild(bubbleEl);
       container.appendChild(wrap);
     }
@@ -557,37 +562,75 @@ function _compactQuery(q) {
   return out;
 }
 
-function appendQueryPanel(bubbleEl, query) {
-  if (!query) return;
+// One renderer for every Marina request the model causes -- query_table,
+// run_sql, read_document, preview_file. The shape is consistent: a
+// collapsible <details> with the request body inside. REST gets a light JSON
+// panel; SQL gets a dark monospace block. Open by default for SQL (the
+// teaching surface's whole point) and for any errored call (so failures
+// don't hide).
+function appendInteractionPanel(bubbleEl, interaction, opts) {
+  if (!interaction) return;
+  opts = opts || {};
+  var isSql = interaction.kind === 'sql';
   var details = document.createElement('details');
   details.style.cssText = 'margin-top:0.4rem;font-size:0.72rem';
+  details.open = !!opts.openByDefault || isSql || !!opts.errored;
   var summary = document.createElement('summary');
   summary.style.cssText = 'cursor:pointer;color:#64748b;user-select:none;padding:0.1rem 0';
-  summary.textContent = 'Query: ' + (query.table || '?');
+  var transportLabel = isSql ? 'SQL' : 'REST';
+  summary.textContent = transportLabel + ': ' + (interaction.label || '?');
   var pre = document.createElement('pre');
-  pre.style.cssText = 'background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.25rem;padding:0.5rem;margin:0.25rem 0 0;font-size:0.7rem;overflow-x:auto;white-space:pre-wrap;color:#334155';
-  pre.textContent = JSON.stringify(_compactQuery(query), null, 2);
+  if (isSql) {
+    pre.style.cssText = 'background:#0f172a;color:#e2e8f0;border-radius:0.25rem;padding:0.6rem 0.75rem;margin:0.25rem 0 0;font-size:0.72rem;overflow-x:auto;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.45';
+  } else {
+    pre.style.cssText = 'background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.25rem;padding:0.5rem;margin:0.25rem 0 0;font-size:0.7rem;overflow-x:auto;white-space:pre-wrap;color:#334155;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+  }
+  if (typeof interaction.request === 'string') {
+    pre.textContent = interaction.request;
+  } else if (interaction.request && typeof interaction.request === 'object') {
+    pre.textContent = JSON.stringify(_compactQuery(interaction.request), null, 2);
+  } else {
+    pre.textContent = '';
+  }
   details.appendChild(summary);
   details.appendChild(pre);
   bubbleEl.appendChild(details);
 }
 
-function appendSqlPanel(bubbleEl, sql) {
-  if (!sql) return;
-  var details = document.createElement('details');
-  details.style.cssText = 'margin-top:0.4rem;font-size:0.72rem';
-  // Open by default in SQL mode -- showing the model's SQL is the whole
-  // point of the teaching surface, and SQL is usually short enough to fit.
-  details.open = true;
-  var summary = document.createElement('summary');
-  summary.style.cssText = 'cursor:pointer;color:#64748b;user-select:none;padding:0.1rem 0';
-  summary.textContent = 'SQL';
-  var pre = document.createElement('pre');
-  pre.style.cssText = 'background:#0f172a;color:#e2e8f0;border-radius:0.25rem;padding:0.6rem 0.75rem;margin:0.25rem 0 0;font-size:0.72rem;overflow-x:auto;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.45';
-  pre.textContent = sql;
-  details.appendChild(summary);
-  details.appendChild(pre);
-  bubbleEl.appendChild(details);
+// Click anywhere on the assistant bubble (or the thinking-dots box) to
+// reveal the model's reasoning; click again to hide. The reasoning lives in
+// a hidden <pre> attached to the container; the container itself owns the
+// click handler. We skip the toggle when the click lands on an interactive
+// descendant (existing <details> panels, links, buttons, the reasoning <pre>
+// itself), so the SQL/REST disclosures and Show/Hide-table buttons still
+// behave as before.
+function attachThinkingToggle(bubbleEl, text) {
+  if (!bubbleEl || !text) return null;
+  var pre = bubbleEl.querySelector('.thinking-toggle-pre');
+  if (pre) {
+    pre.textContent = text;
+  } else {
+    pre = document.createElement('pre');
+    pre.className = 'thinking-toggle-pre';
+    pre.style.cssText = 'display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.25rem;padding:0.5rem;margin:0.5rem 0 0;font-size:0.7rem;overflow:auto;max-height:300px;white-space:pre-wrap;color:#475569;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.45;cursor:text';
+    pre.textContent = text;
+    bubbleEl.appendChild(pre);
+  }
+  if (!bubbleEl.dataset.thinkingWired) {
+    bubbleEl.dataset.thinkingWired = '1';
+    bubbleEl.style.cursor = 'pointer';
+    bubbleEl.title = 'click to toggle the model\'s reasoning';
+    bubbleEl.addEventListener('click', function(e) {
+      if (
+        e.target.closest('a, button, input, select, textarea, summary, details') ||
+        e.target.closest('.thinking-toggle-pre')
+      ) return;
+      var t = bubbleEl.querySelector('.thinking-toggle-pre');
+      if (!t) return;
+      t.style.display = (t.style.display === 'none' ? 'block' : 'none');
+    });
+  }
+  return pre;
 }
 
 function appendResults(bubbleEl, results) {
@@ -598,18 +641,14 @@ function appendResults(bubbleEl, results) {
   }).join(', ');
   var meta = document.createElement('div');
   meta.style.cssText = 'font-size:0.72rem;color:#94a3b8;margin-top:0.5rem;margin-bottom:0.25rem';
-  meta.innerHTML = 'Queried ' + tableList + ' &mdash; ' + totalRows + ' row' + (totalRows !== 1 ? 's' : '') + ' total';
+  meta.innerHTML = 'Asked Marina for ' + tableList + ' &mdash; ' + totalRows + ' row' + (totalRows !== 1 ? 's' : '') + ' total';
   bubbleEl.appendChild(meta);
   results.forEach(function(r) {
-    if (r.sql) {
-      appendSqlPanel(bubbleEl, r.sql);
-    } else {
-      appendQueryPanel(bubbleEl, r.query);
-    }
+    appendInteractionPanel(bubbleEl, r.interaction, { errored: !!r.error });
     if (r.error) {
       var errEl = document.createElement('div');
       errEl.style.cssText = 'color:#dc2626;font-size:0.72rem;margin:0.25rem 0 0.5rem';
-      errEl.textContent = 'Query failed: ' + r.error;
+      errEl.textContent = 'Request failed: ' + r.error;
       bubbleEl.appendChild(errEl);
       return;
     }
@@ -833,12 +872,11 @@ async function loadStreams() {
 }
 
 function updateTransportUI() {
-  // Hide the stream selector when SQL transport is active -- the SQL surface
-  // is client_id-scoped (lakehouse."client_{id}"), there's no stream concept
-  // to bind a selector to.
-  var sqlChecked = !!document.querySelector('input[name="transport"][value="sql"]:checked');
-  var streamWrap = document.getElementById('stream-selector-wrap');
-  if (streamWrap) streamWrap.style.display = sqlChecked ? 'none' : '';
+  // The SQL surface used to be client-scoped (no stream), but after
+  // ui-insight/lakehouse#276 it's stream-scoped just like REST -- schema is
+  // `lakehouse."client_<id>__<stream>"`, one stream per session. The stream
+  // selector is required for both transports now, so there's nothing to
+  // hide. Kept as a hook in case the two transports diverge again later.
 }
 
 // On page load: stream picker uses the SAVED credentials (GET /streams).
@@ -1255,6 +1293,8 @@ async function submitQuestion() {
   var bubbleEl = null;   // the outer bubble element
   var pendingPlots = []; // plot specs accumulated during this response
   var assistantSaved = false; // set true when 'done' fires; falls back to finally otherwise
+  var thinkingText = ''; // reasoning_content accumulated from a thinking model
+  var liveThinkingPre = null; // <pre> currently displaying live reasoning (in dots, then in bubble)
 
   // Show thinking indicator
   var thinkingEl = document.createElement('div');
@@ -1268,6 +1308,10 @@ async function submitQuestion() {
   function removeThinking() {
     var el = document.getElementById('thinking-indicator');
     if (el) el.remove();
+    // Once the dots disappear, any live <pre> attached to them is gone too.
+    if (liveThinkingPre && liveThinkingPre.closest && liveThinkingPre.closest('#thinking-indicator')) {
+      liveThinkingPre = null;
+    }
   }
 
   // Stall detection: show elapsed time after 5s of no content
@@ -1336,6 +1380,23 @@ async function submitQuestion() {
         } else if (data.type === 'status') {
           setStatus(data.text);
 
+        } else if (data.type === 'thinking') {
+          if (data.text) {
+            thinkingText += data.text;
+            // Stream into whichever container is currently visible: the
+            // dots-indicator box while it's up, then the assistant bubble
+            // once tokens have started arriving. attachThinkingToggle is
+            // idempotent -- subsequent calls just update the <pre>'s text.
+            var dotsInner = null;
+            var ind = document.getElementById('thinking-indicator');
+            if (ind) dotsInner = ind.querySelector('div');
+            var target = dotsInner || bubbleEl;
+            if (target) {
+              liveThinkingPre = attachThinkingToggle(target, thinkingText);
+              if (liveThinkingPre) liveThinkingPre.scrollTop = liveThinkingPre.scrollHeight;
+            }
+          }
+
         } else if (data.type === 'token') {
           setStatus('');
           clearStallTimer();
@@ -1354,6 +1415,14 @@ async function submitQuestion() {
             bubbleEl.appendChild(answerEl);
             wrap.appendChild(bubbleEl);
             if (container) { container.appendChild(wrap); container.scrollTop = container.scrollHeight; }
+            // If reasoning arrived before the visible answer (the common
+            // case for thinking models), wire the click-to-reveal toggle on
+            // the brand-new bubble now. Subsequent thinking deltas (rare
+            // once tokens start) keep the <pre> in sync via the SSE
+            // 'thinking' handler.
+            if (thinkingText) {
+              liveThinkingPre = attachThinkingToggle(bubbleEl, thinkingText);
+            }
           }
           answerText += data.text;
           answerEl.innerHTML = renderMarkdown(answerText);
@@ -1392,7 +1461,13 @@ async function submitQuestion() {
           clearStallTimer();
           removeThinking();
           if (bubbleEl) appendResults(bubbleEl, data.results);
-          _currentConv.messages.push({ role: 'assistant', text: answerText, results: data.results || [], plots: pendingPlots });
+          _currentConv.messages.push({
+            role: 'assistant',
+            text: answerText,
+            thinking: thinkingText,
+            results: data.results || [],
+            plots: pendingPlots,
+          });
           _saveCurrentConv();
           assistantSaved = true;
 
@@ -1406,6 +1481,7 @@ async function submitQuestion() {
           _currentConv.messages.push({
             role: 'assistant',
             text: answerText ? answerText + '\n\n' + errText : errText,
+            thinking: thinkingText,
             results: [],
             plots: pendingPlots,
           });
@@ -1429,6 +1505,7 @@ async function submitQuestion() {
       _currentConv.messages.push({
         role: 'assistant',
         text: answerText,
+        thinking: thinkingText,
         results: [],
         plots: pendingPlots,
       });

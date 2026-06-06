@@ -320,14 +320,20 @@ _SQL_TOOLS = [
 
 
 def _build_agent_system(schema_info: list[dict], file_catalog: list[dict],
-                         transport: str = "rest", client_id: str = "") -> str:
+                         transport: str = "rest", client_id: str = "",
+                         stream_name: str = "") -> str:
     lines = ["You are a data assistant. Answer questions using the tools available to you.\n"]
     sql_mode = transport == "sql"
-    schema_qual = f'lakehouse."client_{client_id}"' if sql_mode else ""
+    # Per ui-insight/lakehouse#276 the SQL surface is scoped per
+    # (client, stream): each session targets exactly one stream-schema,
+    # and the gateway rejects statements that reference more than one.
+    schema_qual = f'lakehouse."client_{client_id}__{stream_name}"' if sql_mode else ""
     if sql_mode:
         lines.append(
             f"All data lives in the Trino schema `{schema_qual}`. "
             f"Reference tables schema-qualified, e.g. `{schema_qual}.\"table_name\"`. "
+            f"A single SQL statement may only reference this one stream-schema -- "
+            f"Marina rejects cross-stream queries at the gateway with HTTP 403. "
             f"You are talking to Marina's SQL gateway -- standard Trino SQL works.\n"
         )
     if schema_info:
@@ -409,16 +415,18 @@ async def insight_agent(
     dispatch_sql=None,     # SQL:  async (sql: str) -> dict (columns, rows, row_count)
     transport: str = "rest",
     client_id: str = "",
+    stream_name: str = "",
 ):
     """Agentic tool-calling loop for insight chat.
 
     Yields (event_type, data) tuples:
-      ("status", str)   -- progress message shown in UI
-      ("token",  str)   -- LLM text token(s) to stream
-      ("plot",   dict)  -- Plotly spec + row data for frontend rendering
-      ("preview", dict) -- file preview metadata for UI modal
-      ("done",   list)  -- list of table_results on completion
-      ("error",  str)   -- fatal error message
+      ("status",   str)  -- progress message shown in UI
+      ("thinking", str)  -- reasoning_content chunk from a thinking model
+      ("token",    str)  -- LLM text token(s) to stream
+      ("plot",     dict) -- Plotly spec + row data for frontend rendering
+      ("preview",  dict) -- file preview metadata for UI modal
+      ("done",     list) -- list of table_results on completion
+      ("error",    str)  -- fatal error message
 
     `transport` selects the tool surface: "rest" exposes query_table +
     create_plot + read_document + preview_file; "sql" exposes run_sql +
@@ -437,7 +445,8 @@ async def insight_agent(
     messages: list[dict] = [
         {"role": "system",
          "content": _build_agent_system(schema_info, file_catalog,
-                                          transport=transport, client_id=client_id)}
+                                          transport=transport, client_id=client_id,
+                                          stream_name=stream_name)}
     ]
     if history:
         # Trim to last 10 messages (5 exchanges) to stay within context limits.
@@ -490,6 +499,23 @@ async def insight_agent(
                     if choice.finish_reason:
                         finish_reason = choice.finish_reason
                     delta = choice.delta
+                    # Reasoning/thinking content -- emitted by models that
+                    # separate their internal chain-of-thought from the final
+                    # answer (DeepSeek-R1's `reasoning_content`, providers
+                    # that pass an OpenAI-style `reasoning` field, etc.).
+                    # We forward it as its own event so the UI can offer a
+                    # click-to-peek panel without the reasoning ever mixing
+                    # into the visible answer.
+                    reasoning_text = (
+                        getattr(delta, "reasoning_content", None)
+                        or getattr(delta, "reasoning", None)
+                    )
+                    if reasoning_text:
+                        # Treat reasoning as "we got something" for retry
+                        # logic -- replaying the stream would double-emit it.
+                        any_output = True
+                        emitted_in_attempt = True
+                        yield ("thinking", reasoning_text)
                     if delta.content:
                         content_chunks.append(delta.content)
                         # Speculatively stream content when no tool calls are accumulating.
@@ -564,13 +590,18 @@ async def insight_agent(
                 else:
                     sql_query_counter += 1
                     label = f"sql_{sql_query_counter}"
+                    interaction = {
+                        "kind": "sql",
+                        "label": "run_sql",
+                        "request": sql,
+                    }
                     yield ("status", "Running SQL...")
                     try:
                         result = await dispatch_sql(sql)
                         last_query_result = result
                         table_results.append({
                             "table": label,
-                            "sql": sql,
+                            "interaction": interaction,
                             "rows": result.get("rows", [])[:20],
                             "columns": result.get("columns", []),
                             "row_count": result.get("row_count", 0),
@@ -585,7 +616,7 @@ async def insight_agent(
                     except Exception as e:
                         table_results.append({
                             "table": label,
-                            "sql": sql,
+                            "interaction": interaction,
                             "error": str(e),
                             "rows": [],
                             "columns": [],
@@ -608,16 +639,17 @@ async def insight_agent(
                 offset = int(args.get("offset") or 0) or None
                 group_by = args.get("group_by") or None
                 aggregate = args.get("aggregate") or None
-                # Surfaced to the UI so the user can sanity-check what the
-                # model actually asked Marina for. Stored alongside the result
-                # so it survives history reload.
-                query_spec = {
-                    "table": table,
-                    "filters": filters,
-                    "limit": limit,
-                    "offset": offset,
-                    "group_by": group_by,
-                    "aggregate": aggregate,
+                interaction = {
+                    "kind": "rest",
+                    "label": "query_table",
+                    "request": {
+                        "table": table,
+                        "filters": filters,
+                        "limit": limit,
+                        "offset": offset,
+                        "group_by": group_by,
+                        "aggregate": aggregate,
+                    },
                 }
                 yield ("status", f"Querying {table}...")
                 try:
@@ -629,7 +661,7 @@ async def insight_agent(
                     table_results = [r for r in table_results if r["table"] != table]
                     table_results.append({
                         "table": table,
-                        "query": query_spec,
+                        "interaction": interaction,
                         "rows": result.get("rows", [])[:20],
                         "columns": result.get("columns", []),
                         "row_count": result.get("row_count", 0),
@@ -645,7 +677,7 @@ async def insight_agent(
                     table_results = [r for r in table_results if r["table"] != table]
                     table_results.append({
                         "table": table,
-                        "query": query_spec,
+                        "interaction": interaction,
                         "error": str(e),
                         "rows": [],
                         "columns": [],
@@ -682,11 +714,36 @@ async def insight_agent(
                     })
                     continue
                 file_hash = args.get("file_hash", "")
+                match = next(
+                    (f for f in file_catalog if f.get("file_hash") == file_hash),
+                    None,
+                )
+                filename = match.get("filename", "") if match else ""
+                interaction = {
+                    "kind": "rest",
+                    "label": "read_document",
+                    "request": {"file_hash": file_hash, "filename": filename},
+                }
                 yield ("status", "Reading document...")
                 try:
                     content = await dispatch_file(file_hash)
+                    table_results.append({
+                        "table": f"doc: {filename or file_hash[:8]}",
+                        "interaction": interaction,
+                        "rows": [],
+                        "columns": [],
+                        "row_count": 0,
+                    })
                     tool_content = json.dumps({"content": content[:50000]})
                 except Exception as e:
+                    table_results.append({
+                        "table": f"doc: {filename or file_hash[:8]}",
+                        "interaction": interaction,
+                        "error": str(e),
+                        "rows": [],
+                        "columns": [],
+                        "row_count": 0,
+                    })
                     tool_content = json.dumps({"error": str(e)})
 
             elif name == "preview_file":
@@ -695,14 +752,35 @@ async def insight_agent(
                     (f for f in file_catalog if f.get("file_hash") == file_hash),
                     None,
                 )
+                filename = match.get("filename", "") if match else ""
+                interaction = {
+                    "kind": "rest",
+                    "label": "preview_file",
+                    "request": {"file_hash": file_hash, "filename": filename},
+                }
                 if match:
                     yield ("preview", {
                         "file_hash": file_hash,
-                        "filename": match.get("filename", ""),
+                        "filename": filename,
                         "content_type": match.get("content_type", ""),
+                    })
+                    table_results.append({
+                        "table": f"preview: {filename}",
+                        "interaction": interaction,
+                        "rows": [],
+                        "columns": [],
+                        "row_count": 0,
                     })
                     tool_content = json.dumps({"status": "preview opened"})
                 else:
+                    table_results.append({
+                        "table": f"preview: {file_hash[:8]}",
+                        "interaction": interaction,
+                        "error": "File not found in catalog",
+                        "rows": [],
+                        "columns": [],
+                        "row_count": 0,
+                    })
                     tool_content = json.dumps({"error": "File not found in catalog"})
 
             else:
