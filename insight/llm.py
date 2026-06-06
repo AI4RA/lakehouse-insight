@@ -563,13 +563,18 @@ async def insight_agent(
                 else:
                     sql_query_counter += 1
                     label = f"sql_{sql_query_counter}"
+                    interaction = {
+                        "kind": "sql",
+                        "label": "run_sql",
+                        "request": sql,
+                    }
                     yield ("status", "Running SQL...")
                     try:
                         result = await dispatch_sql(sql)
                         last_query_result = result
                         table_results.append({
                             "table": label,
-                            "sql": sql,
+                            "interaction": interaction,
                             "rows": result.get("rows", [])[:20],
                             "columns": result.get("columns", []),
                             "row_count": result.get("row_count", 0),
@@ -584,7 +589,7 @@ async def insight_agent(
                     except Exception as e:
                         table_results.append({
                             "table": label,
-                            "sql": sql,
+                            "interaction": interaction,
                             "error": str(e),
                             "rows": [],
                             "columns": [],
@@ -607,16 +612,17 @@ async def insight_agent(
                 offset = int(args.get("offset") or 0) or None
                 group_by = args.get("group_by") or None
                 aggregate = args.get("aggregate") or None
-                # Surfaced to the UI so the user can sanity-check what the
-                # model actually asked Marina for. Stored alongside the result
-                # so it survives history reload.
-                query_spec = {
-                    "table": table,
-                    "filters": filters,
-                    "limit": limit,
-                    "offset": offset,
-                    "group_by": group_by,
-                    "aggregate": aggregate,
+                interaction = {
+                    "kind": "rest",
+                    "label": "query_table",
+                    "request": {
+                        "table": table,
+                        "filters": filters,
+                        "limit": limit,
+                        "offset": offset,
+                        "group_by": group_by,
+                        "aggregate": aggregate,
+                    },
                 }
                 yield ("status", f"Querying {table}...")
                 try:
@@ -628,7 +634,7 @@ async def insight_agent(
                     table_results = [r for r in table_results if r["table"] != table]
                     table_results.append({
                         "table": table,
-                        "query": query_spec,
+                        "interaction": interaction,
                         "rows": result.get("rows", [])[:20],
                         "columns": result.get("columns", []),
                         "row_count": result.get("row_count", 0),
@@ -644,7 +650,7 @@ async def insight_agent(
                     table_results = [r for r in table_results if r["table"] != table]
                     table_results.append({
                         "table": table,
-                        "query": query_spec,
+                        "interaction": interaction,
                         "error": str(e),
                         "rows": [],
                         "columns": [],
@@ -681,11 +687,36 @@ async def insight_agent(
                     })
                     continue
                 file_hash = args.get("file_hash", "")
+                match = next(
+                    (f for f in file_catalog if f.get("file_hash") == file_hash),
+                    None,
+                )
+                filename = match.get("filename", "") if match else ""
+                interaction = {
+                    "kind": "rest",
+                    "label": "read_document",
+                    "request": {"file_hash": file_hash, "filename": filename},
+                }
                 yield ("status", "Reading document...")
                 try:
                     content = await dispatch_file(file_hash)
+                    table_results.append({
+                        "table": f"doc: {filename or file_hash[:8]}",
+                        "interaction": interaction,
+                        "rows": [],
+                        "columns": [],
+                        "row_count": 0,
+                    })
                     tool_content = json.dumps({"content": content[:50000]})
                 except Exception as e:
+                    table_results.append({
+                        "table": f"doc: {filename or file_hash[:8]}",
+                        "interaction": interaction,
+                        "error": str(e),
+                        "rows": [],
+                        "columns": [],
+                        "row_count": 0,
+                    })
                     tool_content = json.dumps({"error": str(e)})
 
             elif name == "preview_file":
@@ -694,14 +725,35 @@ async def insight_agent(
                     (f for f in file_catalog if f.get("file_hash") == file_hash),
                     None,
                 )
+                filename = match.get("filename", "") if match else ""
+                interaction = {
+                    "kind": "rest",
+                    "label": "preview_file",
+                    "request": {"file_hash": file_hash, "filename": filename},
+                }
                 if match:
                     yield ("preview", {
                         "file_hash": file_hash,
-                        "filename": match.get("filename", ""),
+                        "filename": filename,
                         "content_type": match.get("content_type", ""),
+                    })
+                    table_results.append({
+                        "table": f"preview: {filename}",
+                        "interaction": interaction,
+                        "rows": [],
+                        "columns": [],
+                        "row_count": 0,
                     })
                     tool_content = json.dumps({"status": "preview opened"})
                 else:
+                    table_results.append({
+                        "table": f"preview: {file_hash[:8]}",
+                        "interaction": interaction,
+                        "error": "File not found in catalog",
+                        "rows": [],
+                        "columns": [],
+                        "row_count": 0,
+                    })
                     tool_content = json.dumps({"error": "File not found in catalog"})
 
             else:
