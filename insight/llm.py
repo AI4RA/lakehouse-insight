@@ -320,14 +320,20 @@ _SQL_TOOLS = [
 
 
 def _build_agent_system(schema_info: list[dict], file_catalog: list[dict],
-                         transport: str = "rest", client_id: str = "") -> str:
+                         transport: str = "rest", client_id: str = "",
+                         stream_name: str = "") -> str:
     lines = ["You are a data assistant. Answer questions using the tools available to you.\n"]
     sql_mode = transport == "sql"
-    schema_qual = f'lakehouse."client_{client_id}"' if sql_mode else ""
+    # Per ui-insight/lakehouse#276 the SQL surface is scoped per
+    # (client, stream): each session targets exactly one stream-schema,
+    # and the gateway rejects statements that reference more than one.
+    schema_qual = f'lakehouse."client_{client_id}__{stream_name}"' if sql_mode else ""
     if sql_mode:
         lines.append(
             f"All data lives in the Trino schema `{schema_qual}`. "
             f"Reference tables schema-qualified, e.g. `{schema_qual}.\"table_name\"`. "
+            f"A single SQL statement may only reference this one stream-schema -- "
+            f"Marina rejects cross-stream queries at the gateway with HTTP 403. "
             f"You are talking to Marina's SQL gateway -- standard Trino SQL works.\n"
         )
     if schema_info:
@@ -408,6 +414,7 @@ async def insight_agent(
     dispatch_sql=None,     # SQL:  async (sql: str) -> dict (columns, rows, row_count)
     transport: str = "rest",
     client_id: str = "",
+    stream_name: str = "",
 ):
     """Agentic tool-calling loop for insight chat.
 
@@ -437,7 +444,8 @@ async def insight_agent(
     messages: list[dict] = [
         {"role": "system",
          "content": _build_agent_system(schema_info, file_catalog,
-                                          transport=transport, client_id=client_id)}
+                                          transport=transport, client_id=client_id,
+                                          stream_name=stream_name)}
     ]
     if history:
         # Trim to last 10 messages (5 exchanges) to stay within context limits.

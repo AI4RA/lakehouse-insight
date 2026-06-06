@@ -87,7 +87,9 @@
               </div>
               <div class="text-xs text-slate-400 mt-1">
                 REST: Marina's structured /query endpoint, scoped per querying stream.
-                SQL: Marina's Trino-style SQL gateway, scoped by client_id. SQL is still being wired into the agent.
+                SQL: Marina's Trino-style SQL gateway, also scoped per stream
+                (schema = <code>lakehouse."client_&lt;id&gt;__&lt;stream&gt;"</code>).
+                Pick a stream below either way.
               </div>
             </div>
             <div>
@@ -870,12 +872,11 @@ async function loadStreams() {
 }
 
 function updateTransportUI() {
-  // Hide the stream selector when SQL transport is active -- the SQL surface
-  // is client_id-scoped (lakehouse."client_{id}"), there's no stream concept
-  // to bind a selector to.
-  var sqlChecked = !!document.querySelector('input[name="transport"][value="sql"]:checked');
-  var streamWrap = document.getElementById('stream-selector-wrap');
-  if (streamWrap) streamWrap.style.display = sqlChecked ? 'none' : '';
+  // The SQL surface used to be client-scoped (no stream), but after
+  // ui-insight/lakehouse#276 it's stream-scoped just like REST -- schema is
+  // `lakehouse."client_<id>__<stream>"`, one stream per session. The stream
+  // selector is required for both transports now, so there's nothing to
+  // hide. Kept as a hook in case the two transports diverge again later.
 }
 
 // On page load: stream picker uses the SAVED credentials (GET /streams).

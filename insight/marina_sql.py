@@ -32,9 +32,15 @@ def auth_headers_sql(client_id: str, private_key_pem: str) -> dict:
     }
 
 
-def schema_for(client_id: str) -> str:
-    """Schema-qualified prefix the LLM must use, e.g. `lakehouse."client_foo"`."""
-    return f'lakehouse."client_{client_id}"'
+def schema_for(client_id: str, stream_name: str) -> str:
+    """Schema-qualified prefix the LLM must use,
+    e.g. `lakehouse."client_foo__personnel"`.
+
+    Marina now scopes the SQL surface per `(client, stream)` -- a single
+    statement may only reference one stream-schema, and cross-schema queries
+    are rejected at the gateway with HTTP 403 (ui-insight/lakehouse#276).
+    """
+    return f'lakehouse."client_{client_id}__{stream_name}"'
 
 
 async def run_sql(headers: dict, sql: str) -> dict:
@@ -97,15 +103,19 @@ async def run_sql(headers: dict, sql: str) -> dict:
     }
 
 
-async def discover_schema(headers: dict, client_id: str) -> list[dict]:
+async def discover_schema(headers: dict, client_id: str, stream_name: str) -> list[dict]:
     """Build a schema listing equivalent to Marina's REST /query/schema,
     but populated via SHOW TABLES / DESCRIBE against the SQL endpoint.
+
+    Scoped to the single `(client_id, stream_name)` schema -- post-#276 the
+    SQL gateway no longer allows cross-stream queries, so each Insight
+    session targets exactly one stream just like the REST path does.
 
     Returns: [{name, description, columns: [{column_name, data_type, description}]}].
     Failures to DESCRIBE a single table are skipped so one bad table doesn't
     nuke the whole listing.
     """
-    schema = schema_for(client_id)
+    schema = schema_for(client_id, stream_name)
     try:
         tables_result = await run_sql(headers, f"SHOW TABLES IN {schema}")
     except Exception:
