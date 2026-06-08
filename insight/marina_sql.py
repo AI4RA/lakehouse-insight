@@ -111,6 +111,9 @@ async def discover_schema(headers: dict, client_id: str, stream_name: str) -> li
     SQL gateway no longer allows cross-stream queries, so each Insight
     session targets exactly one stream just like the REST path does.
 
+    Falls back to the pre-#276 per-client schema `lakehouse."client_<id>"`
+    when the per-stream schema doesn't exist yet (transitional Marinas).
+
     Returns: [{name, description, columns: [{column_name, data_type, description}]}].
     Failures to DESCRIBE a single table are skipped so one bad table doesn't
     nuke the whole listing.
@@ -119,7 +122,16 @@ async def discover_schema(headers: dict, client_id: str, stream_name: str) -> li
     try:
         tables_result = await run_sql(headers, f"SHOW TABLES IN {schema}")
     except Exception:
-        return []
+        tables_result = None
+
+    # Fall back to pre-#276 per-client schema if per-stream one is absent.
+    fallback_schema = f'lakehouse."client_{client_id}"'
+    if tables_result is None or not tables_result.get("rows"):
+        try:
+            tables_result = await run_sql(headers, f"SHOW TABLES IN {fallback_schema}")
+            schema = fallback_schema
+        except Exception:
+            return []
 
     # SHOW TABLES returns rows with a single column (Trino calls it "Table").
     table_names: list[str] = []
