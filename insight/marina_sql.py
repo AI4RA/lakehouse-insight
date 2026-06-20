@@ -90,9 +90,7 @@ async def run_sql(headers: dict, sql: str) -> dict:
 
     err = last_body.get("error")
     if err:
-        # Trino errors look like {message, errorName, errorType, ...}.
-        msg = err.get("message") or err.get("errorName") or str(err)
-        raise RuntimeError(f"SQL error: {msg}")
+        raise RuntimeError(str(err))
 
     col_names = [c.get("name", "") for c in columns]
     rows_dicts = [dict(zip(col_names, row)) for row in rows]
@@ -111,27 +109,10 @@ async def discover_schema(headers: dict, client_id: str, stream_name: str) -> li
     SQL gateway no longer allows cross-stream queries, so each Insight
     session targets exactly one stream just like the REST path does.
 
-    Falls back to the pre-#276 per-client schema `lakehouse."client_<id>"`
-    when the per-stream schema doesn't exist yet (transitional Marinas).
-
     Returns: [{name, description, columns: [{column_name, data_type, description}]}].
-    Failures to DESCRIBE a single table are skipped so one bad table doesn't
-    nuke the whole listing.
     """
     schema = schema_for(client_id, stream_name)
-    try:
-        tables_result = await run_sql(headers, f"SHOW TABLES IN {schema}")
-    except Exception:
-        tables_result = None
-
-    # Fall back to pre-#276 per-client schema if per-stream one is absent.
-    fallback_schema = f'lakehouse."client_{client_id}"'
-    if tables_result is None or not tables_result.get("rows"):
-        try:
-            tables_result = await run_sql(headers, f"SHOW TABLES IN {fallback_schema}")
-            schema = fallback_schema
-        except Exception:
-            return []
+    tables_result = await run_sql(headers, f"SHOW TABLES IN {schema}")
 
     # SHOW TABLES returns rows with a single column (Trino calls it "Table").
     table_names: list[str] = []
@@ -143,10 +124,7 @@ async def discover_schema(headers: dict, client_id: str, stream_name: str) -> li
 
     schemas: list[dict] = []
     for tname in table_names:
-        try:
-            desc = await run_sql(headers, f'DESCRIBE {schema}."{tname}"')
-        except Exception:
-            continue
+        desc = await run_sql(headers, f'DESCRIBE {schema}."{tname}"')
         cols: list[dict] = []
         for r in desc["rows"]:
             # DESCRIBE columns: Column, Type, Extra, Comment (Trino convention).
