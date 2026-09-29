@@ -33,14 +33,15 @@ def auth_headers_sql(client_id: str, private_key_pem: str) -> dict:
 
 
 def schema_for(client_id: str, stream_name: str) -> str:
-    """Schema-qualified prefix the LLM must use,
-    e.g. `lakehouse."client_foo__personnel"`.
+    """Schema-qualified prefix the LLM must use, e.g. `lakehouse."personnel"`.
 
-    Marina now scopes the SQL surface per `(client, stream)` -- a single
-    statement may only reference one stream-schema, and cross-schema queries
-    are rejected at the gateway with HTTP 403 (ui-insight/lakehouse#276).
+    A bearer sees each of its querying streams as a schema named after the
+    stream (ui-insight/lakehouse#372); the bearer already identifies the
+    client. A single statement may only reference one stream, and
+    cross-stream queries are rejected at the gateway with HTTP 403.
+    `client_id` is unused and kept for the call sites.
     """
-    return f'lakehouse."client_{client_id}__{stream_name}"'
+    return f'lakehouse."{stream_name}"'
 
 
 async def run_sql(headers: dict, sql: str) -> dict:

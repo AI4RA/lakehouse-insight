@@ -34,9 +34,9 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     async def insight_page(request: Request):
         saved_client_id, saved_key, saved_stream, saved_transport = _credentials.read()
         llm_cfg = _llm_config.read()
-        # Post ui-insight/lakehouse#276 the SQL surface is also stream-scoped
-        # (schema = `lakehouse."client_<id>__<stream>"`), so stream_name is
-        # required on both transports.
+        # The SQL surface is stream-scoped like REST (schema =
+        # `lakehouse."<stream>"`, ui-insight/lakehouse#372), so stream_name
+        # is required on both transports.
         marina_configured = bool(saved_client_id and saved_key and saved_stream)
         llm_configured = bool(
             llm_cfg.get("base_url", "").strip() and llm_cfg.get("model", "").strip()
