@@ -327,10 +327,11 @@ def _build_agent_system(schema_info: list[dict], file_catalog: list[dict],
                          stream_name: str = "") -> str:
     lines = ["You are a data assistant. Answer questions using the tools available to you.\n"]
     sql_mode = transport == "sql"
-    # Per ui-insight/lakehouse#276 the SQL surface is scoped per
-    # (client, stream): each session targets exactly one stream-schema,
-    # and the gateway rejects statements that reference more than one.
-    schema_qual = f'lakehouse."client_{client_id}__{stream_name}"' if sql_mode else ""
+    # The SQL surface is scoped per stream: a bearer's streams are its
+    # schemas, named after the stream (ui-insight/lakehouse#372). Each
+    # session targets exactly one, and the gateway rejects statements that
+    # reference more than one.
+    schema_qual = f'lakehouse."{stream_name}"' if sql_mode else ""
     if sql_mode:
         lines.append(
             f"All data lives in the Trino schema `{schema_qual}`. "
@@ -373,13 +374,13 @@ def _build_agent_system(schema_info: list[dict], file_catalog: list[dict],
             "- Introspection (tables / columns / available schemas): call run_sql with one of "
             "the SHOW/DESCRIBE commands below so the user sees the query. Don't paraphrase the "
             "schema from memory.\n"
-            f"    * List your accessible stream-schemas: `SHOW SCHEMAS IN lakehouse LIKE 'client_{client_id}__%'`\n"
+            "    * List your accessible streams (one schema each): `SHOW SCHEMAS IN lakehouse`\n"
             f"    * List tables in the current stream: `SHOW TABLES IN {schema_qual}`\n"
             f"    * Describe a table's columns: `DESCRIBE {schema_qual}.\"<table_name>\"`\n"
             "- `information_schema` (e.g. `information_schema.tables`, `information_schema.columns`) "
             "is BLOCKED by Marina and returns HTTP 403. Use the SHOW/DESCRIBE commands above for "
             "introspection -- do not query `information_schema`, do not try `pg_catalog`, do not "
-            "issue a bare `SHOW SCHEMAS`. The LIKE-filtered form above is the only allowed listing.\n"
+            "guess schema names. The SHOW forms above are the only listings.\n"
             "- Read-only: INSERT/UPDATE/DELETE/DROP/ALTER are rejected by Marina with HTTP 403. "
             "Don't attempt them.\n"
             "- Keep prose answers concise."
