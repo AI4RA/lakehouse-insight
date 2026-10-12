@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "lakehouse-insight"
+type: software
+date-released: 2026-10-12
+license: Apache-2.0
+repository-code: "https://github.com/AI4RA/lakehouse-insight"
+authors:
+  - family-names: Layman
+    given-names: Nathan
+    affiliation: "University of Idaho"
+abstract: >-
+  AI chatbot for the GRANTED data lakehouse. Connects to Marina via OAuth and answers questions with inline tables and Plotly charts.
